@@ -1,7 +1,18 @@
 import axios from 'axios';
+import { startTelemetry } from './telemetry.js';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.petertecnet.com.br/api';
 export const APP_SLUG = import.meta.env.VITE_APP_SLUG || 'kryvion';
+
+const getAuthToken = () => ['token', 'petertecnet_token', 'access_token', 'auth_token']
+  .map((key) => localStorage.getItem(key))
+  .find(Boolean);
+
+startTelemetry({
+  apiBaseUrl: API_BASE_URL,
+  appSlug: APP_SLUG,
+  getToken: getAuthToken,
+});
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -13,9 +24,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = ['token', 'petertecnet_token', 'access_token', 'auth_token']
-    .map((key) => localStorage.getItem(key))
-    .find(Boolean);
+  const token = getAuthToken();
 
   if (token) config.headers.Authorization = `Bearer ${token}`;
   config.headers['X-Frontend-Page'] = window.location.pathname;
