@@ -8,6 +8,7 @@ import { API_BASE_URL, APP_SLUG } from './services/api.js';
 import { getToken } from './services/auth.js';
 import { startTelemetry } from './services/telemetry.js';
 import { mountMarketIntelligence } from './MarketIntelligenceOverlay.jsx';
+import { mountMarketDataProvenance } from './components/MarketDataProvenance.jsx';
 
 startTelemetry({
   apiBaseUrl: API_BASE_URL,
@@ -16,3 +17,4 @@ startTelemetry({
 });
 
 mountMarketIntelligence();
+mountMarketDataProvenance();
