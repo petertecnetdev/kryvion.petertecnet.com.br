@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#050507" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Kryvion" />
     <meta name="description" content="Kryvion é uma plataforma gratuita de análise de criptomoedas, inteligência de mercado, radar de oportunidades, portfólio, simulação e gestão de risco." />
     <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
     <meta name="author" content="Peter Tecnet" />
@@ -17,6 +21,9 @@
     <meta name="twitter:title" content="Kryvion | Inteligência para o Mercado Cripto" />
     <meta name="twitter:description" content="Análise de criptomoedas, radar de oportunidades, portfólio e gestão de risco em uma plataforma gratuita." />
     <link rel="canonical" href="https://kryvion.petertecnet.com.br" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/pwa-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/pwa-icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Michroma&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -40,5 +47,12 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/entry.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>
