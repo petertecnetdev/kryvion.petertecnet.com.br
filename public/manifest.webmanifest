@@ -4,20 +4,27 @@
   "short_name": "Kryvion",
   "description": "Inteligência para análise de criptomoedas, mercado, portfólio e gestão de risco.",
   "lang": "pt-BR",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#050507",
   "theme_color": "#050507",
   "orientation": "any",
   "categories": ["finance", "business", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/pwa-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }
