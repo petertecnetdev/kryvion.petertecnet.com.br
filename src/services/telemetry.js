@@ -1,0 +1,247 @@
+const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|card|cpf|document|authorization|code/i;
+const TELEMETRY_SCHEMA = '2';
+
+export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => localStorage.getItem('token') }) {
+  if (typeof window === 'undefined' || window.__peterTelemetryStarted) return () => {};
+
+  const normalizedSlug = String(appSlug || '').trim().toLowerCase();
+  if (!normalizedSlug) return () => {};
+
+  window.__peterTelemetryStarted = true;
+
+  const endpoint = `${String(apiBaseUrl).replace(/\/+$/, '')}/interactions/batch`;
+  const sessionKey = `peter_telemetry_session_${normalizedSlug}`;
+  const sessionId = sessionStorage.getItem(sessionKey) || createId();
+  sessionStorage.setItem(sessionKey, sessionId);
+
+  let queue = [];
+  let lastPath = page();
+  let scrollMilestones = new Set();
+  let flushing = false;
+  let sessionEnded = false;
+
+  function createId() {
+    return window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function clean(value, limit = 200) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
+  }
+
+  function safeUrl(value, relativeForSameOrigin = true) {
+    if (!value) return '';
+
+    try {
+      const url = new URL(String(value), window.location.origin);
+      if (relativeForSameOrigin && url.origin === window.location.origin) return url.pathname;
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return clean(String(value).split(/[?#]/, 1)[0], 500);
+    }
+  }
+
+  function page() {
+    return window.location.pathname;
+  }
+
+  function enqueue(type, details = {}) {
+    const metadata = {};
+    for (const [key, value] of Object.entries(details.metadata || {})) {
+      if (!SENSITIVE_KEY_PATTERN.test(key) && value !== undefined && value !== null) {
+        metadata[key] = clean(value, 500);
+      }
+    }
+
+    queue.push({
+      id: createId(),
+      type,
+      timestamp: new Date().toISOString(),
+      page: page(),
+      label: clean(details.label),
+      target: clean(details.target),
+      metadata,
+    });
+
+    if (queue.length >= 20) flush();
+  }
+
+  async function flush(force = false) {
+    if ((!force && flushing) || !queue.length) return;
+    if (!force) flushing = true;
+
+    const events = queue.splice(0, 50);
+    const token = getToken?.();
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Peter-App': normalizedSlug,
+          'X-App-Slug': normalizedSlug,
+          'X-Telemetry-Schema': TELEMETRY_SCHEMA,
+          'X-Frontend-Page': safeUrl(window.location.href),
+          ...(appId ? { 'X-App-ID': String(appId) } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ session_id: sessionId, events }),
+      });
+
+      if (response.status === 429 || response.status >= 500) {
+        queue.unshift(...events.slice(-20));
+      }
+    } catch {
+      queue.unshift(...events.slice(-20));
+    } finally {
+      if (!force) flushing = false;
+    }
+  }
+
+  function deferNavigation(source) {
+    const callback = () => recordNavigation(source);
+    if (typeof window.queueMicrotask === 'function') window.queueMicrotask(callback);
+    else window.setTimeout(callback, 0);
+  }
+
+  function recordNavigation(source) {
+    const current = page();
+    if (current === lastPath) return;
+    enqueue('navigation', { label: current, metadata: { from: lastPath, source } });
+    lastPath = current;
+    scrollMilestones = new Set();
+  }
+
+  function onClick(event) {
+    const element = event.target?.closest?.("a,button,[role='button'],[data-track]");
+    if (!element || element.closest?.('[data-telemetry-ignore]')) return;
+
+    const href = element.getAttribute('href');
+    const destination = safeUrl(href);
+
+    enqueue('click', {
+      label: element.dataset?.track || element.getAttribute('aria-label') || element.textContent || element.name || element.id || element.tagName,
+      target: destination || element.id || element.name || element.tagName,
+      metadata: {
+        tag: element.tagName,
+        destination,
+      },
+    });
+  }
+
+  function onSubmit(event) {
+    const form = event.target;
+    if (form.closest?.('[data-telemetry-ignore]')) return;
+
+    const identity = form.getAttribute('aria-label') || form.name || form.id || 'formulário';
+    const searchForm = /search|busca|pesquisa/i.test(identity);
+    enqueue(searchForm ? 'search' : 'form_submit', {
+      label: identity,
+      target: safeUrl(form.action) || page(),
+      metadata: { method: form.method || 'GET' },
+    });
+  }
+
+  function onChange(event) {
+    const element = event.target;
+    if (!element?.matches?.("select,input[type='checkbox'],input[type='radio']") || element.closest?.('[data-telemetry-ignore]')) return;
+
+    enqueue(element.matches('select') ? 'filter' : 'field_change', {
+      label: element.getAttribute('aria-label') || element.name || element.id || element.type,
+      target: element.id || element.name || element.tagName,
+      metadata: { control: element.type || element.tagName, checked: element.checked },
+    });
+  }
+
+  function onScroll() {
+    const documentHeight = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+    const percentage = Math.min(100, Math.round((window.scrollY / documentHeight) * 100));
+
+    for (const milestone of [25, 50, 75, 100]) {
+      if (percentage >= milestone && !scrollMilestones.has(milestone)) {
+        scrollMilestones.add(milestone);
+        enqueue('scroll', { label: `${milestone}% da página`, metadata: { milestone } });
+      }
+    }
+  }
+
+  function onError(event) {
+    enqueue('frontend_error', {
+      label: event.message || 'Erro JavaScript',
+      metadata: { source: safeUrl(event.filename, false), line: event.lineno, column: event.colno },
+    });
+  }
+
+  function onRejection(event) {
+    enqueue('frontend_error', {
+      label: event.reason?.message || 'Promise rejeitada',
+      metadata: { kind: 'unhandledrejection' },
+    });
+  }
+
+  function onPopState() {
+    recordNavigation('popstate');
+  }
+
+  function onPageHide() {
+    if (!sessionEnded) {
+      sessionEnded = true;
+      enqueue('session_end', { label: 'Sessão encerrada' });
+    }
+    flush(true);
+  }
+
+  const originalPush = window.history.pushState;
+  const originalReplace = window.history.replaceState;
+  window.history.pushState = function (...args) {
+    const result = originalPush.apply(this, args);
+    deferNavigation('pushState');
+    return result;
+  };
+  window.history.replaceState = function (...args) {
+    const result = originalReplace.apply(this, args);
+    deferNavigation('replaceState');
+    return result;
+  };
+
+  document.addEventListener('click', onClick, true);
+  document.addEventListener('submit', onSubmit, true);
+  document.addEventListener('change', onChange, true);
+  window.addEventListener('popstate', onPopState);
+  window.addEventListener('error', onError);
+  window.addEventListener('unhandledrejection', onRejection);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('pagehide', onPageHide);
+
+  enqueue('session_start', {
+    label: 'Sessão iniciada',
+    metadata: {
+      referrer: safeUrl(document.referrer, false),
+      language: navigator.language,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+      telemetry_schema: TELEMETRY_SCHEMA,
+    },
+  });
+
+  // Não espere o primeiro ciclo periódico para registrar um acesso recém-aberto.
+  flush();
+  const timer = window.setInterval(flush, 5000);
+
+  return () => {
+    window.clearInterval(timer);
+    onPageHide();
+    document.removeEventListener('click', onClick, true);
+    document.removeEventListener('submit', onSubmit, true);
+    document.removeEventListener('change', onChange, true);
+    window.removeEventListener('popstate', onPopState);
+    window.removeEventListener('error', onError);
+    window.removeEventListener('unhandledrejection', onRejection);
+    window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('pagehide', onPageHide);
+    window.history.pushState = originalPush;
+    window.history.replaceState = originalReplace;
+    window.__peterTelemetryStarted = false;
+  };
+}
