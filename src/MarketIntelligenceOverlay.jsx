@@ -1,14 +1,41 @@
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {FiActivity,FiChevronDown,FiChevronUp,FiRefreshCw,FiShield,FiTrendingDown,FiTrendingUp,FiZap} from 'react-icons/fi';
+import {FiActivity,FiAlertTriangle,FiChevronDown,FiChevronUp,FiRefreshCw,FiShield,FiTrendingDown,FiTrendingUp,FiZap} from 'react-icons/fi';
 import {marketApi} from './services/api.js';
+import {marketSignalsApi} from './services/marketSignals.js';
 import './market-intelligence.css';
+import './market-signals.css';
 
 const POLL_MS=60_000;
 const fmtBRL=(value)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:Number(value)<10?4:0}).format(Number(value||0));
 const fmtUSD=(value)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD',notation:Number(value)>=1_000_000?'compact':'standard',maximumFractionDigits:Number(value)<1?6:2}).format(Number(value||0));
 const fmtPct=(value)=>`${Number(value||0)>=0?'+':''}${Number(value||0).toFixed(2)}%`;
 const safeScore=(value)=>Math.max(0,Math.min(100,Number(value||0)));
+
+function SignalCard({signal,tone}){
+ if(!signal)return <article className={`kry-signal-card ${tone} empty`}><small>SINAL NÃO CONFIRMADO</small><h3>Aguardando confluência</h3><p>A Kryvion só dispara este alerta quando score, confiança, momentum e volume atingem o nível mínimo.</p></article>;
+ const bullish=tone==='buy'||tone==='rise';
+ const Icon=bullish?FiTrendingUp:FiTrendingDown;
+ return <article className={`kry-signal-card ${tone}`}>
+  <div className="kry-signal-top"><span><Icon/><small>{tone==='buy'?'COMPRA':tone==='sell'?'VENDA':tone==='rise'?'POSSÍVEL GRANDE ALTA':'POSSÍVEL GRANDE BAIXA'}</small></span><b>{Math.round(safeScore(signal.score))}/100</b></div>
+  <h3>{signal.title}</h3>
+  <div className="kry-signal-price">{signal.symbol} · {fmtUSD(signal.price_usd)} <span>{fmtPct(signal.change_24h)} 24h</span></div>
+  <div className="kry-signal-meta"><span>Confiança <b>{Math.round(Number(signal.confidence||0))}%</b></span><span>Janela <b>{signal.estimated_window||'—'}</b></span></div>
+  <p>{signal.message}</p>
+  <ul>{(signal.reasons||[]).slice(0,2).map((reason)=><li key={reason}>{reason}</li>)}</ul>
+  <div className="kry-signal-risk"><FiAlertTriangle/><span>{signal.risks?.[0]||'Sinal probabilístico; o mercado pode inverter rapidamente.'}</span></div>
+ </article>;
+}
+
+function SignalBoard({signals}){
+ if(!signals)return null;
+ return <section className="kry-signals-board">
+  <div className="kry-signals-head"><div><small><FiActivity/> SINAIS KRYVION</small><h2>Compra, venda e movimentos extremos</h2><p>O motor só marca “agora” quando há confluência forte. Os demais cartões funcionam como radar antecipado.</p></div><span>válido por {Number(signals.valid_for_minutes||20)} min</span></div>
+  <div className="kry-signals-grid primary"><SignalCard signal={signals.buy} tone="buy"/><SignalCard signal={signals.sell} tone="sell"/></div>
+  <div className="kry-signals-grid"><SignalCard signal={signals.possible_large_rise} tone="rise"/><SignalCard signal={signals.possible_large_fall} tone="fall"/></div>
+  <p className="kry-signals-disclaimer"><FiShield/>{signals.disclaimer}</p>
+ </section>;
+}
 
 function AssetInsight({asset,kind}){
  if(!asset)return null;
@@ -51,6 +78,7 @@ function FactorBars({asset}){
 function MarketIntelligenceOverlay(){
  const [intelligence,setIntelligence]=useState(null);
  const [scanner,setScanner]=useState(null);
+ const [signals,setSignals]=useState(null);
  const [fetchedAt,setFetchedAt]=useState(null);
  const [error,setError]=useState('');
  const [loading,setLoading]=useState(false);
@@ -60,14 +88,16 @@ function MarketIntelligenceOverlay(){
  const load=useCallback(async({silent=false}={})=>{
   if(!silent)setLoading(true);
   try{
-   const [overviewResponse,scannerResponse]=await Promise.all([marketApi.overview(),marketApi.scanner({limit:25})]);
+   const [overviewResponse,scannerResponse,signalsResponse]=await Promise.all([marketApi.overview(),marketApi.scanner({limit:25}),marketSignalsApi.current()]);
    const data=overviewResponse.data?.data||overviewResponse.data;
    const scannerData=scannerResponse.data?.data||scannerResponse.data;
+   const signalsData=signalsResponse.data?.data||signalsResponse.data;
    if(!data?.market_intelligence)throw new Error('Inteligência multifator indisponível nesta versão da API.');
    if(!scannerData?.opportunities)throw new Error('Radar de aceleração indisponível nesta versão da API.');
    setIntelligence(data.market_intelligence);
    setScanner(scannerData);
-   setFetchedAt(scannerData.scanned_at?new Date(scannerData.scanned_at):(data.fetched_at?new Date(data.fetched_at):new Date()));
+   setSignals(signalsData||null);
+   setFetchedAt(signalsData?.generated_at?new Date(signalsData.generated_at):(scannerData.scanned_at?new Date(scannerData.scanned_at):(data.fetched_at?new Date(data.fetched_at):new Date())));
    setError('');
   }catch(loadError){setError(loadError?.response?.data?.message||loadError?.message||'Não foi possível atualizar a inteligência de mercado.');}
   finally{if(!silent)setLoading(false);}
@@ -79,14 +109,16 @@ function MarketIntelligenceOverlay(){
  const leader=intelligence?.relative_strength_leader;
  const weakest=intelligence?.relative_weakness;
  const breakout=scanner?.opportunities?.[0];
+ const headline=signals?.buy?`${signals.buy.symbol}: sinal forte de compra`:signals?.sell?`${signals.sell.symbol}: sinal forte de venda`:breakout?`${breakout.symbol} no topo do radar de alta`:(leader?`${leader.symbol} lidera a força relativa`:'Analisando mercado');
 
  return <aside className={`kry-intel-dock ${open?'open':'closed'}`} aria-label="Kryvion Market Intelligence">
   <button className="kry-intel-toggle" onClick={()=>setOpen((value)=>!value)} aria-expanded={open}>
-   <span className="kry-intel-live"><i/><FiActivity/></span><span><small>MARKET INTELLIGENCE</small><b>{breakout?`${breakout.symbol} no topo do radar de alta`:(leader?`${leader.symbol} lidera a força relativa`:'Analisando mercado')}</b></span>{open?<FiChevronDown/>:<FiChevronUp/>}
+   <span className="kry-intel-live"><i/><FiActivity/></span><span><small>MARKET INTELLIGENCE</small><b>{headline}</b></span>{open?<FiChevronDown/>:<FiChevronUp/>}
   </button>
   {open&&<div className="kry-intel-body">
-   <div className="kry-intel-title"><div><small>ANÁLISE MULTIFATOR · TEMPO REAL</small><h2>Radar de aceleração + contexto</h2><p>Procura sinais de impulso antes de uma possível continuação, usando preço, aceleração, volume, liquidez e risco.</p></div><button onClick={()=>load()} disabled={loading}><FiRefreshCw className={loading?'spin':''}/></button></div>
+   <div className="kry-intel-title"><div><small>ANÁLISE MULTIFATOR · TEMPO REAL</small><h2>Sinais de mercado + radar de aceleração</h2><p>Combina momentum, aceleração, volume, liquidez e risco para separar observação de sinais realmente fortes.</p></div><button onClick={()=>load()} disabled={loading}><FiRefreshCw className={loading?'spin':''}/></button></div>
    {error&&<div className="kry-intel-error">{error}</div>}
+   {signals&&<SignalBoard signals={signals}/>} 
    {scanner&&<BreakoutRadar scanner={scanner}/>} 
    {intelligence&&<>
     <div className="kry-intel-context"><span><small>REGIME</small><b>{intelligence.context?.regime?.label||'Monitorando'}</b></span><span><small>FEAR & GREED</small><b>{sentiment.value??'—'}/100 · {sentiment.classification||'sem leitura'}</b></span><span><small>ATUALIZAÇÃO</small><b>{fetchedAt&&!Number.isNaN(fetchedAt.getTime())?fetchedAt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'agora'}</b></span></div>
