@@ -11,13 +11,26 @@ import AdvancedMarketCharts from './components/AdvancedMarketCharts.jsx';
 import CandlestickTerminal from './components/CandlestickTerminal.jsx';
 import './styles.css';
 
-const fallback=[
-{id:'bitcoin',symbol:'BTC',name:'Bitcoin',price:352000,change_24h:2.84,change_7d:6.12,market_cap:6900000000000,volume:185000000000,score:82,risk:'moderado',confidence:78,spark:[94,96,95,99,101,100,104,108,107,111,113,116]},
-{id:'ethereum',symbol:'ETH',name:'Ethereum',price:18200,change_24h:1.42,change_7d:4.88,market_cap:2200000000000,volume:92000000000,score:77,risk:'moderado',confidence:74,spark:[98,97,99,100,102,101,103,105,107,106,108,110]},
-{id:'solana',symbol:'SOL',name:'Solana',price:845,change_24h:4.18,change_7d:8.74,market_cap:410000000000,volume:36000000000,score:74,risk:'alto',confidence:69,spark:[91,94,92,96,98,101,99,103,106,109,108,114]},
-{id:'chainlink',symbol:'LINK',name:'Chainlink',price:126,change_24h:-0.92,change_7d:3.2,market_cap:81000000000,volume:7100000000,score:67,risk:'alto',confidence:63,spark:[104,103,101,100,99,100,101,102,103,101,102,103]},
-{id:'avalanche-2',symbol:'AVAX',name:'Avalanche',price:176,change_24h:0.71,change_7d:-1.9,market_cap:72000000000,volume:6200000000,score:58,risk:'alto',confidence:58,spark:[108,107,106,104,105,103,102,101,102,100,101,102]}
-];
+const MARKET_CACHE_KEY='kryvion.market.overview.v1';
+const MARKET_POLL_MS=60_000;
+const DEFAULT_REGIME={label:'Aguardando mercado',code:'neutral',confidence:0};
+
+function readMarketCache(){
+ try{
+  const cached=JSON.parse(localStorage.getItem(MARKET_CACHE_KEY)||'null');
+  return cached?.assets?.length?cached:null;
+ }catch{
+  return null;
+ }
+}
+
+function writeMarketCache(snapshot){
+ try{
+  localStorage.setItem(MARKET_CACHE_KEY,JSON.stringify(snapshot));
+ }catch{
+  // Cache é apenas uma camada de resiliência; falhas de storage não bloqueiam o mercado.
+ }
+}
 
 const fmtBRL=(n)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:Number(n)<10?2:0}).format(Number(n||0));
 const pct=(n)=>`${Number(n||0)>=0?'+':''}${Number(n||0).toFixed(2)}%`;
@@ -36,10 +49,13 @@ function ScoreRing({score}){
 function App({user,onLogout}){
  const [page,setPage]=useState('overview');
  const [mobile,setMobile]=useState(false);
- const [assets,setAssets]=useState(fallback);
- const [regime,setRegime]=useState({label:'Mercado construtivo',code:'bullish',confidence:72});
+ const cachedMarket=useMemo(()=>readMarketCache(),[]);
+ const [assets,setAssets]=useState(()=>cachedMarket?.assets||[]);
+ const [regime,setRegime]=useState(()=>cachedMarket?.regime||DEFAULT_REGIME);
  const [loading,setLoading]=useState(true);
- const [updated,setUpdated]=useState(null);
+ const [updated,setUpdated]=useState(()=>cachedMarket?.updatedAt?new Date(cachedMarket.updatedAt):null);
+ const [marketState,setMarketState]=useState(()=>cachedMarket?.assets?.length?'stale':'connecting');
+ const [marketError,setMarketError]=useState('');
  const [amount,setAmount]=useState(1000);
  const [risk,setRisk]=useState('moderado');
  const [analysis,setAnalysis]=useState(null);
@@ -53,18 +69,46 @@ function App({user,onLogout}){
    window.setTimeout(()=>setToast(''),2600);
  };
 
- const load=async()=>{
-   setLoading(true);
+ const load=async({background=false}={})=>{
+   if(!background)setLoading(true);
    try{
      const response=await marketApi.overview();
      const data=response.data?.data||response.data;
-     if(data?.assets?.length)setAssets(data.assets);
-     if(data?.regime)setRegime(data.regime);
-     setUpdated(new Date());
-   }catch{
-     setUpdated(new Date());
+     const nextAssets=Array.isArray(data?.assets)?data.assets:[];
+     if(!nextAssets.length)throw new Error('A API não retornou ativos de mercado.');
+
+     const nextRegime=data?.regime||DEFAULT_REGIME;
+     const candidateUpdated=data?.fetched_at?new Date(data.fetched_at):new Date();
+     const nextUpdated=Number.isNaN(candidateUpdated.getTime())?new Date():candidateUpdated;
+
+     setAssets(nextAssets);
+     setRegime(nextRegime);
+     setUpdated(nextUpdated);
+     setMarketState('live');
+     setMarketError('');
+     writeMarketCache({
+       assets:nextAssets,
+       regime:nextRegime,
+       updatedAt:nextUpdated.toISOString(),
+       provider:data?.provider||null,
+       currency:data?.currency||'BRL',
+     });
+   }catch(error){
+     const cached=readMarketCache();
+     if(cached?.assets?.length){
+       setAssets(cached.assets);
+       setRegime(cached.regime||DEFAULT_REGIME);
+       setUpdated(cached.updatedAt?new Date(cached.updatedAt):null);
+       setMarketState('stale');
+     }else{
+       setAssets([]);
+       setRegime(DEFAULT_REGIME);
+       setUpdated(null);
+       setMarketState('offline');
+     }
+     setMarketError(error?.response?.data?.message||error?.message||'Não foi possível atualizar os dados de mercado.');
    }finally{
-     setLoading(false);
+     if(!background)setLoading(false);
    }
  };
 
@@ -74,6 +118,19 @@ function App({user,onLogout}){
      if(portfolioResult.status==='fulfilled')setPositions(portfolioResult.value.data?.data?.positions||portfolioResult.value.data?.positions||[]);
      if(alertResult.status==='fulfilled')setAlerts(alertResult.value.data?.data||alertResult.value.data?.alerts||[]);
    });
+
+   const timer=window.setInterval(()=>{
+     if(document.visibilityState==='visible')load({background:true});
+   },MARKET_POLL_MS);
+   const refreshWhenVisible=()=>{
+     if(document.visibilityState==='visible')load({background:true});
+   };
+   document.addEventListener('visibilitychange',refreshWhenVisible);
+
+   return()=>{
+     window.clearInterval(timer);
+     document.removeEventListener('visibilitychange',refreshWhenVisible);
+   };
  },[]);
 
  const totalMarket=useMemo(()=>assets.reduce((sum,asset)=>sum+Number(asset.market_cap||0),0),[assets]);
@@ -86,14 +143,9 @@ function App({user,onLogout}){
      const response=await marketApi.analyze({amount:Number(amount),risk_profile:risk,horizon:'swing',asset_ids:assets.slice(0,8).map((asset)=>asset.id)});
      setAnalysis(response.data?.data||response.data);
      flash('Análise recalculada com dados atuais.');
-   }catch{
-     const picks=assets.slice().sort((a,b)=>b.score-a.score).slice(0,3);
-     setAnalysis({
-       allocation:picks.map((asset,index)=>({asset:asset.symbol,name:asset.name,amount:Math.round(Number(amount)*[.45,.3,.15][index]),score:asset.score,confidence:asset.confidence,action:asset.score>75?'Entrada parcial':'Aguardar confirmação'})),
-       reserve:Math.round(Number(amount)*.1),
-       disclaimer:'Cenário educacional; não constitui recomendação financeira.',
-     });
-     flash('Modo resiliente: análise local aplicada.');
+   }catch(error){
+     setAnalysis(null);
+     flash(error?.response?.data?.message||'Análise indisponível no momento. Nenhuma alocação sintética foi gerada.');
    }
  };
 
@@ -102,7 +154,7 @@ function App({user,onLogout}){
    <div className="side-top"><Brand/><button className="close-mobile" onClick={()=>setMobile(false)}><FiX/></button></div>
    <nav>{nav.map(([id,label,Icon])=><button key={id} onClick={()=>{setPage(id);setMobile(false)}} className={page===id?'active':''}><Icon/><span>{label}</span></button>)}</nav>
    <div className="side-bottom">
-    <div className="risk-mini"><FiShield/><div><small>Risk Guardian</small><strong>Ativo</strong></div><span className="pulse-dot"/></div>
+    <div className="risk-mini"><FiShield/><div><small>Risk Guardian</small><strong>Monitor de risco</strong></div><span className="pulse-dot"/></div>
     <a href="https://petertecnet.com.br" rel="noreferrer">Ecossistema Peter Tecnet</a>
    </div>
   </aside>
@@ -126,14 +178,20 @@ function App({user,onLogout}){
    <section className="content">
     <div className="page-head">
      <div><p className="eyebrow">KRYVION INTELLIGENCE ENGINE</p><h1>{nav.find((item)=>item[0]===page)?.[1]}</h1><p>Decisões orientadas por contexto, risco e evidências — nunca por um único indicador.</p></div>
-     <div className="timestamp">{updated?`Atualizado ${updated.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}`:'Conectando ao mercado'}</div>
+     <div className={`timestamp ${marketState}`}>{marketState==='live'&&updated?`Dados reais · ${updated.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}`:marketState==='stale'&&updated?`Dados em cache · ${updated.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}`:marketState==='offline'?'Mercado indisponível':'Conectando ao mercado'}</div>
     </div>
+
+    {(marketState==='stale'||marketState==='offline')&&<div className={`market-data-banner ${marketState}`}>
+     <FiActivity/>
+     <div><b>{marketState==='stale'?'Atualização temporariamente indisponível':'Dados de mercado indisponíveis'}</b><span>{marketError||'A Kryvion não exibirá dados sintéticos como se fossem atuais.'}</span></div>
+     <button onClick={()=>load()}>Tentar novamente</button>
+    </div>}
 
     {page==='overview'&&<>
      <div className="hero-grid">
       <div className="hero-card glow">
-       <div><span className="label">Regime de mercado</span><h2>{regime.label}</h2><p>O motor combina momentum, amplitude, liquidez e volatilidade para classificar o ambiente.</p><div className="confidence"><span>Confiança do regime</span><b>{regime.confidence||72}%</b><div><i style={{width:`${regime.confidence||72}%`}}/></div></div></div>
-       <div className="orb"><div>{regime.confidence||72}<small>%</small></div></div>
+       <div><span className="label">Regime de mercado</span><h2>{regime.label}</h2><p>O motor combina momentum, amplitude, liquidez e volatilidade para classificar o ambiente.</p><div className="confidence"><span>Confiança do regime</span><b>{Math.round(Number(regime.confidence??0))}%</b><div><i style={{width:`${Math.max(0,Math.min(100,Number(regime.confidence??0)))}%`}}/></div></div></div>
+       <div className="orb"><div>{Math.round(Number(regime.confidence??0))}<small>%</small></div></div>
       </div>
       <div className="metric-card"><span className="metric-icon"><FiDollarSign/></span><small>Mercado monitorado</small><strong>R$ {(totalMarket/1e12).toFixed(1)} tri</strong><em>liquidez agregada</em></div>
       <div className="metric-card"><span className="metric-icon"><FiActivity/></span><small>Opportunity Index</small><strong>{sentiment}/100</strong><em>{sentiment>70?'favorável':'seletivo'}</em></div>
@@ -181,7 +239,7 @@ function App({user,onLogout}){
     {page==='signals'&&<Signals assets={assets}/>} 
     {page==='portfolio'&&<Portfolio positions={positions} total={portfolioValue} flash={flash}/>} 
     {page==='simulator'&&<Simulator total={portfolioValue} simMove={simMove} setSimMove={setSimMove} simValue={simValue}/>} 
-    {page==='alerts'&&<Alerts alerts={alerts} assets={assets} setAlerts={setAlerts} flash={flash}/>} 
+    {page==='alerts'&&<Alerts alerts={alerts} flash={flash}/>} 
     {page==='risk'&&<Risk flash={flash}/>} 
    </section>
   </main>
@@ -196,7 +254,7 @@ function Radar({assets}){
 }
 
 function Signals({assets}){
- return <div className="signals-grid">{assets.map((asset,index)=><div className="signal-card" key={asset.id}><div className={`signal-icon ${asset.score>=75?'positive':asset.score<60?'negative':'neutral'}`}><FiActivity/></div><div><small>{new Date(Date.now()-index*17*60000).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} · {asset.symbol}</small><h3>{asset.score>=75?'Momentum e liquidez alinhados':asset.score>=60?'Confluência parcial':'Risco supera oportunidade'}</h3><p>{asset.score>=75?'Tendência de 7 dias, volume e estrutura favorecem entrada fracionada.':'O motor recomenda confirmação adicional antes de aumentar exposição.'}</p><div className="signal-meta"><span>Score {asset.score}</span><span>Confiança {asset.confidence||60}%</span><span>{asset.risk}</span></div></div></div>)}</div>;
+ return <div className="signals-grid">{assets.map((asset)=><div className="signal-card" key={asset.id}><div className={`signal-icon ${asset.score>=75?'positive':asset.score<60?'negative':'neutral'}`}><FiActivity/></div><div><small>Leitura do snapshot atual · {asset.symbol}</small><h3>{asset.score>=75?'Momentum e liquidez alinhados':asset.score>=60?'Confluência parcial':'Risco supera oportunidade'}</h3><p>{asset.score>=75?'Tendência de 7 dias, volume e estrutura favorecem entrada fracionada.':'O motor recomenda confirmação adicional antes de aumentar exposição.'}</p><div className="signal-meta"><span>Score {asset.score}</span><span>Confiança {asset.confidence||60}%</span><span>{asset.risk}</span></div></div></div>)}</div>;
 }
 
 function Portfolio({positions,total,flash}){
@@ -208,17 +266,28 @@ function Simulator({total,simMove,setSimMove,simValue}){
  return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>STRESS TEST</small><h3>Impacto na carteira</h3></div></div><div className="chart-big"><ResponsiveContainer width="100%" height={320}><AreaChart data={chart}><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b3dff" stopOpacity={.5}/><stop offset="100%" stopColor="#8b3dff" stopOpacity={0}/></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.06)" vertical={false}/><XAxis dataKey="move" stroke="#727a95"/><YAxis stroke="#727a95" tickFormatter={(value)=>`R$${Math.round(value/1000)}k`}/><Tooltip formatter={(value)=>fmtBRL(value)}/><Area dataKey="value" stroke="#aa63ff" fill="url(#fill)"/></AreaChart></ResponsiveContainer></div></div><div className="panel simulator-control"><small>CENÁRIO</small><h3>Choque de mercado</h3><input type="range" min="-50" max="50" step="1" value={simMove} onChange={(event)=>setSimMove(event.target.value)}/><strong className={simMove>=0?'up':'down'}>{simMove>0?'+':''}{simMove}%</strong><div className="projection"><span>Carteira hoje<b>{fmtBRL(total)}</b></span><span>Após cenário<b>{fmtBRL(simValue)}</b></span><span>Impacto<b className={simMove>=0?'up':'down'}>{fmtBRL(simValue-total)}</b></span></div><p>Simulação simplificada e não probabilística. O motor de cenários pode receber correlações por ativo via API.</p></div></div>;
 }
 
-function Alerts({alerts,assets,setAlerts,flash}){
- const add=()=>{const alert={id:`local-${Date.now()}`,asset:assets[0]?.symbol||'BTC',condition:'Opportunity Score > 80',active:true};setAlerts((current)=>[alert,...current]);flash('Alerta criado localmente; será sincronizado quando autenticado.');};
- const display=alerts.length?alerts:[{id:1,asset:'BTC',condition:'Score acima de 80',active:true},{id:2,asset:'ETH',condition:'Volatilidade > faixa normal',active:true},{id:3,asset:'SOL',condition:'Perda de suporte + volume',active:false}];
- return <div className="panel"><div className="panel-head"><div><small>SMART ALERTS</small><h3>Condições de mercado</h3></div><button onClick={add}><FiPlus/> Novo alerta</button></div><div className="alerts-list">{display.map((alert)=><div className="alert-row" key={alert.id}><div className="coin">{String(alert.asset||alert.asset_symbol||'A').slice(0,1)}</div><div><b>{alert.asset||alert.asset_symbol}</b><small>{alert.condition||alert.rule}</small></div><span className={alert.active!==false?'status-on':'status-off'}>{alert.active!==false?'Ativo':'Pausado'}</span><FiBell/></div>)}</div></div>;
+function Alerts({alerts,flash}){
+ const add=()=>flash('Criação de alertas ainda não está disponível na API. Nenhum alerta fictício foi criado.');
+ return <div className="panel"><div className="panel-head"><div><small>SMART ALERTS</small><h3>Condições de mercado</h3></div><button onClick={add}><FiPlus/> Novo alerta</button></div>{alerts.length?<div className="alerts-list">{alerts.map((alert)=><div className="alert-row" key={alert.id}><div className="coin">{String(alert.asset||alert.asset_symbol||'A').slice(0,1)}</div><div><b>{alert.asset||alert.asset_symbol}</b><small>{alert.condition||alert.rule}</small></div><span className={alert.active!==false?'status-on':'status-off'}>{alert.active!==false?'Ativo':'Pausado'}</span><FiBell/></div>)}</div>:<div className="empty"><FiBell/><h3>Nenhum alerta sincronizado</h3><p>A Kryvion não exibirá alertas de demonstração como se fossem alertas reais da sua conta.</p></div>}</div>;
 }
 
 function Risk({flash}){
  const [level,setLevel]=useState('moderado');
  const [maxAsset,setMaxAsset]=useState(25);
  const [maxLoss,setMaxLoss]=useState(8);
- return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>RISK GUARDIAN</small><h3>Política pessoal de risco</h3></div><span className="pill buy">proteção ativa</span></div><div className="risk-form"><label>Perfil<select value={level} onChange={(event)=>setLevel(event.target.value)}><option value="conservador">conservador</option><option value="moderado">moderado</option><option value="agressivo">agressivo</option></select></label><label>Exposição máxima por ativo <b>{maxAsset}%</b><input type="range" min="5" max="60" value={maxAsset} onChange={(event)=>setMaxAsset(event.target.value)}/></label><label>Perda máxima tolerada no cenário <b>{maxLoss}%</b><input type="range" min="2" max="30" value={maxLoss} onChange={(event)=>setMaxLoss(event.target.value)}/></label><button className="primary" onClick={()=>flash('Política de risco atualizada.')}><FiShield/> Salvar política</button></div></div><div className="panel"><small>REGRAS AUTOMÁTICAS</small><h3>Guardrails</h3><ul className="guard-list"><li><FiShield/> Reservar liquidez mínima</li><li><FiShield/> Reduzir alocação em volatilidade extrema</li><li><FiShield/> Bloquear concentração acima do limite</li><li><FiShield/> Exigir confiança mínima para sinais</li><li><FiShield/> Não executar ordens automaticamente</li></ul></div></div>;
+ const [saving,setSaving]=useState(false);
+ const save=async()=>{
+  setSaving(true);
+  try{
+   await marketApi.saveRisk({risk_profile:level,max_asset_exposure:Number(maxAsset),max_scenario_loss:Number(maxLoss)});
+   flash('Política de risco salva na sua conta.');
+  }catch(error){
+   flash(error?.response?.status===404?'Política de risco ainda não está disponível na API. Nada foi salvo.':error?.response?.data?.message||'Não foi possível salvar a política de risco.');
+  }finally{
+   setSaving(false);
+  }
+ };
+ return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>RISK GUARDIAN</small><h3>Política pessoal de risco</h3></div><span className="pill wait">configuração</span></div><div className="risk-form"><label>Perfil<select value={level} onChange={(event)=>setLevel(event.target.value)}><option value="conservador">conservador</option><option value="moderado">moderado</option><option value="agressivo">agressivo</option></select></label><label>Exposição máxima por ativo <b>{maxAsset}%</b><input type="range" min="5" max="60" value={maxAsset} onChange={(event)=>setMaxAsset(event.target.value)}/></label><label>Perda máxima tolerada no cenário <b>{maxLoss}%</b><input type="range" min="2" max="30" value={maxLoss} onChange={(event)=>setMaxLoss(event.target.value)}/></label><button className="primary" onClick={save} disabled={saving}><FiShield/> {saving?'Salvando…':'Salvar política'}</button></div></div><div className="panel"><small>REGRAS DE PROTEÇÃO</small><h3>Guardrails propostos</h3><ul className="guard-list"><li><FiShield/> Reservar liquidez mínima</li><li><FiShield/> Reduzir alocação em volatilidade extrema</li><li><FiShield/> Bloquear concentração acima do limite</li><li><FiShield/> Exigir confiança mínima para sinais</li><li><FiShield/> Não executar ordens automaticamente</li></ul></div></div>;
 }
 
 function AuthRoot(){
