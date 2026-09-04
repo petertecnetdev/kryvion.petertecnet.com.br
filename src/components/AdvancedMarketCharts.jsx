@@ -51,6 +51,50 @@ function drawdown(values=[]){
  });
 }
 
+function emaSeries(values=[],period=3){
+ const safePeriod=Math.max(1,period);
+ const multiplier=2/(safePeriod+1);
+ let current=Number(values[0]||0);
+ return values.map((raw,index)=>{
+  const value=Number(raw||0);
+  current=index===0?value:(value-current)*multiplier+current;
+  return current;
+ });
+}
+
+function volatilityBands(values=[],period=6){
+ return values.map((raw,index)=>{
+  const start=Math.max(0,index-period+1);
+  const window=values.slice(start,index+1).map(Number);
+  const mean=window.reduce((sum,value)=>sum+value,0)/Math.max(1,window.length);
+  const variance=window.reduce((sum,value)=>sum+((value-mean)**2),0)/Math.max(1,window.length);
+  const deviation=Math.sqrt(variance);
+  return {middle:mean,lower:mean-(deviation*2),upper:mean+(deviation*2)};
+ });
+}
+
+function adaptiveRsi(values=[],period=6){
+ return values.map((_,index)=>{
+  if(index===0)return 50;
+  const start=Math.max(1,index-period+1);
+  let gains=0;
+  let losses=0;
+  let samples=0;
+  for(let cursor=start;cursor<=index;cursor+=1){
+   const delta=Number(values[cursor]||0)-Number(values[cursor-1]||0);
+   if(delta>0)gains+=delta;
+   if(delta<0)losses+=Math.abs(delta);
+   samples+=1;
+  }
+  if(!samples)return 50;
+  const averageGain=gains/samples;
+  const averageLoss=losses/samples;
+  if(!averageLoss)return averageGain?100:50;
+  const relativeStrength=averageGain/averageLoss;
+  return 100-(100/(1+relativeStrength));
+ });
+}
+
 function ChartTooltip({active,payload,label,suffix='%'}){
  if(!active||!payload?.length)return null;
  return <div className="kry-tooltip">
@@ -163,15 +207,48 @@ export default function AdvancedMarketCharts({assets=[],regime}){
   })).sort((a,b)=>b.turnover-a.turnover);
  },[safeAssets,assets]);
 
+ const technical=useMemo(()=>{
+  const values=(selected?.spark||[]).map(Number);
+  if(values.length<2)return {rows:[],fastPeriod:2,slowPeriod:3,rsiPeriod:2};
+  const length=values.length;
+  const fastPeriod=Math.max(2,Math.min(4,Math.floor(length/3)));
+  const slowPeriod=Math.max(fastPeriod+1,Math.min(8,Math.floor(length*.65)));
+  const rsiPeriod=Math.max(2,Math.min(6,length-1));
+  const bandPeriod=Math.max(3,Math.min(6,length));
+  const fast=emaSeries(values,fastPeriod);
+  const slow=emaSeries(values,slowPeriod);
+  const macd=fast.map((value,index)=>value-slow[index]);
+  const signal=emaSeries(macd,Math.max(2,Math.min(3,length-1)));
+  const rsi=adaptiveRsi(values,rsiPeriod);
+  const bands=volatilityBands(values,bandPeriod);
+  const start=Math.max(0,length-windowSize);
+  const rows=values.map((value,index)=>({
+   point:index+1,
+   value,
+   emaFast:fast[index],
+   emaSlow:slow[index],
+   band:[bands[index].lower,bands[index].upper],
+   middle:bands[index].middle,
+   rsi:rsi[index],
+   macd:macd[index],
+   signal:signal[index],
+   histogram:macd[index]-signal[index],
+  })).slice(start).map((row,index)=>({...row,point:index+1}));
+  return {rows,fastPeriod,slowPeriod,rsiPeriod,bandPeriod};
+ },[selected,windowSize]);
+
  if(!selected)return null;
 
  const timeframeOptions=[{label:'6P',value:6},{label:'8P',value:8},{label:'12P',value:12},{label:'Tudo',value:99}];
  const avgCorrelation=correlationMatrix.length>1?correlationMatrix.flatMap((row,index)=>row.cells.filter((_,cellIndex)=>cellIndex!==index).map((cell)=>cell.value)).reduce((sum,value)=>sum+value,0)/(correlationMatrix.length*(correlationMatrix.length-1)):0;
  const breadthNow=breadth.at(-1)?.breadth||0;
+ const latestTechnical=technical.rows.at(-1)||{};
+ const rsiState=Number(latestTechnical.rsi||50)>=70?'pressão compradora estendida':Number(latestTechnical.rsi||50)<=30?'pressão vendedora estendida':'zona neutra';
+ const macdDirection=Number(latestTechnical.histogram||0)>=0?'aceleração positiva':'aceleração negativa';
 
  return <section className="kry-advanced">
   <div className="kry-advanced-head">
-   <div><p>KRYVION MARKET TERMINAL</p><h2>Mapa avançado do mercado</h2><span>Preço relativo, amplitude, correlação, drawdown, liquidez e leitura multifator em uma única camada.</span></div>
+   <div><p>KRYVION MARKET TERMINAL</p><h2>Mapa avançado do mercado</h2><span>Força relativa, amplitude, correlação, drawdown, liquidez, bandas de volatilidade e momentum técnico em uma única camada.</span></div>
    <div className="kry-terminal-badge"><i/><div><small>REGIME</small><strong>{regime?.label||'Monitorando mercado'}</strong></div><b>{Math.round(Number(regime?.confidence||0))}%</b></div>
   </div>
 
@@ -191,7 +268,6 @@ export default function AdvancedMarketCharts({assets=[],regime}){
     <div className="kry-legend">{(safeAssets.length?safeAssets:assets.slice(0,5)).map((asset,index)=><button key={asset.id} className={selected.id===asset.id?'active':''} onClick={()=>setSelectedId(asset.id)}><i style={{background:COLORS[index%COLORS.length]}}/>{asset.symbol}<span className={Number(asset.change_24h)>=0?'up':'down'}>{formatPct(asset.change_24h)}</span></button>)}</div>
     <ResponsiveContainer width="100%" height={330}>
      <ComposedChart data={normalized} margin={{top:10,right:12,left:-18,bottom:0}}>
-      <defs><linearGradient id="marketPulse" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8e61ff" stopOpacity="0.20"/><stop offset="100%" stopColor="#8e61ff" stopOpacity="0"/></linearGradient></defs>
       <CartesianGrid stroke="rgba(255,255,255,.055)" vertical={false}/>
       <XAxis dataKey="point" tickLine={false} axisLine={false} tick={{fill:'#65708f',fontSize:11}}/>
       <YAxis tickLine={false} axisLine={false} tick={{fill:'#65708f',fontSize:11}} tickFormatter={(value)=>`${value.toFixed(0)}%`}/>
@@ -265,10 +341,51 @@ export default function AdvancedMarketCharts({assets=[],regime}){
    </article>
   </div>
 
+  <div className="kry-technical-grid">
+   <article className="kry-chart-panel">
+    <SectionTitle eyebrow="VOLATILITY ENVELOPE" title={`Estrutura técnica · ${selected.symbol}`} meta={`EMA ${technical.fastPeriod}/${technical.slowPeriod} · banda 2σ`} icon={FiTrendingUp}/>
+    <div className="kry-tech-legend"><span><i className="series"/>Série</span><span><i className="fast"/>EMA rápida</span><span><i className="slow"/>EMA lenta</span><span><i className="band"/>Faixa 2σ</span></div>
+    <ResponsiveContainer width="100%" height={280}>
+     <ComposedChart data={technical.rows} margin={{top:10,right:12,left:-14,bottom:0}}>
+      <defs><linearGradient id="technicalBand" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8e61ff" stopOpacity=".22"/><stop offset="100%" stopColor="#4aa8ff" stopOpacity=".06"/></linearGradient></defs>
+      <CartesianGrid stroke="rgba(255,255,255,.05)" vertical={false}/>
+      <XAxis dataKey="point" tick={{fill:'#65708f',fontSize:10}} tickLine={false} axisLine={false}/>
+      <YAxis domain={['auto','auto']} tick={{fill:'#65708f',fontSize:10}} tickLine={false} axisLine={false}/>
+      <Tooltip formatter={(value,name)=>Array.isArray(value)?[`${Number(value[0]).toFixed(2)} – ${Number(value[1]).toFixed(2)}`,'Faixa 2σ']:[Number(value).toFixed(2),name]}/>
+      <Area type="monotone" dataKey="band" name="Faixa 2σ" stroke="none" fill="url(#technicalBand)" fillOpacity={1}/>
+      <Line type="monotone" dataKey="value" name="Série" stroke="#e8edff" strokeWidth={2.4} dot={false}/>
+      <Line type="monotone" dataKey="emaFast" name={`EMA ${technical.fastPeriod}`} stroke="#68f5cb" strokeWidth={1.8} dot={false}/>
+      <Line type="monotone" dataKey="emaSlow" name={`EMA ${technical.slowPeriod}`} stroke="#ffbd5b" strokeWidth={1.6} dot={false}/>
+     </ComposedChart>
+    </ResponsiveContainer>
+   </article>
+
+   <article className="kry-chart-panel">
+    <SectionTitle eyebrow="MOMENTUM ENGINE" title="RSI adaptativo × MACD" meta={`RSI ${Number(latestTechnical.rsi||50).toFixed(0)} · ${rsiState}`} icon={FiActivity}/>
+    <div className="kry-momentum-state"><span className={Number(latestTechnical.histogram||0)>=0?'positive':'negative'}>{macdDirection}</span><small>Parâmetros ajustados à quantidade de pontos disponível; não simula OHLC ausente.</small></div>
+    <ResponsiveContainer width="100%" height={280}>
+     <ComposedChart data={technical.rows} margin={{top:10,right:8,left:-12,bottom:0}}>
+      <CartesianGrid stroke="rgba(255,255,255,.05)" vertical={false}/>
+      <XAxis dataKey="point" tick={{fill:'#65708f',fontSize:10}} tickLine={false} axisLine={false}/>
+      <YAxis yAxisId="rsi" domain={[0,100]} tick={{fill:'#65708f',fontSize:10}} tickLine={false} axisLine={false} ticks={[30,50,70]}/>
+      <YAxis yAxisId="macd" orientation="right" tick={{fill:'#65708f',fontSize:10}} tickLine={false} axisLine={false}/>
+      <ReferenceLine yAxisId="rsi" y={70} stroke="rgba(255,98,143,.3)" strokeDasharray="4 4"/>
+      <ReferenceLine yAxisId="rsi" y={30} stroke="rgba(104,245,203,.3)" strokeDasharray="4 4"/>
+      <ReferenceLine yAxisId="macd" y={0} stroke="rgba(255,255,255,.16)"/>
+      <Tooltip formatter={(value,name)=>[Number(value).toFixed(2),name]}/>
+      <Bar yAxisId="macd" dataKey="histogram" name="Histograma MACD" barSize={10}>{technical.rows.map((row,index)=><Cell key={`hist-${index}`} fill={Number(row.histogram)>=0?'#68f5cb':'#ff628f'} fillOpacity={.52}/>)}</Bar>
+      <Line yAxisId="macd" type="monotone" dataKey="macd" name="MACD" stroke="#8e61ff" strokeWidth={1.8} dot={false}/>
+      <Line yAxisId="macd" type="monotone" dataKey="signal" name="Sinal" stroke="#ffbd5b" strokeWidth={1.4} dot={false}/>
+      <Line yAxisId="rsi" type="monotone" dataKey="rsi" name={`RSI ${technical.rsiPeriod}`} stroke="#4aa8ff" strokeWidth={2} dot={false}/>
+     </ComposedChart>
+    </ResponsiveContainer>
+   </article>
+  </div>
+
   <div className="kry-bottom-grid">
    <article className="kry-chart-panel kry-correlation-panel">
     <SectionTitle eyebrow="CORRELATION MATRIX" title="Dependência entre ativos" meta="Baseada nos retornos da série disponível" icon={FiLayers}/>
-    <div className="kry-corr-grid" style={{'--corr-cols':correlationMatrix.length+1}}>
+    <div className="kry-corr-grid" style={{gridTemplateColumns:`72px repeat(${correlationMatrix.length}, minmax(48px, 1fr))`}}>
      <span/>{correlationMatrix.map((row)=><b key={`head-${row.symbol}`}>{row.symbol}</b>)}
      {correlationMatrix.flatMap((row)=>[
       <b key={`row-${row.symbol}`}>{row.symbol}</b>,
