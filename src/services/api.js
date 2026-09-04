@@ -45,6 +45,7 @@ api.interceptors.response.use(
 
 export const marketApi = {
   overview: () => api.get(`/v1/apps/${APP_SLUG}/market/overview`),
+  ohlcv: (asset, params = {}) => api.get(`/v1/apps/${APP_SLUG}/market/assets/${encodeURIComponent(asset)}/ohlcv`, { params }),
   analyze: (data) => api.post(`/v1/apps/${APP_SLUG}/market/analyze`, data),
   portfolio: () => api.get(`/v1/apps/${APP_SLUG}/market/portfolio`),
   addPosition: (data) => api.post(`/v1/apps/${APP_SLUG}/market/positions`, data),
