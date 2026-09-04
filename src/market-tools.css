@@ -1,0 +1,14 @@
+.market-tool-form{display:grid;grid-template-columns:minmax(150px,1.2fr) repeat(2,minmax(120px,1fr)) auto;gap:10px;align-items:end;margin:-2px 0 18px;padding:14px;border:1px solid rgba(151,79,255,.13);background:#08070c;border-radius:13px}
+.market-tool-form.alert-form{grid-template-columns:minmax(110px,.8fr) minmax(150px,1.25fr) minmax(130px,1fr) minmax(120px,1fr) auto}
+.market-tool-form label{display:grid;gap:6px;color:#777381;font-size:8px}
+.market-tool-form input,.market-tool-form select{min-width:0;height:40px;padding:0 10px;border:1px solid rgba(153,78,255,.14);border-radius:10px;background:#050508;color:#eee9f7;outline:0}
+.market-tool-form input:focus,.market-tool-form select:focus{border-color:rgba(145,67,255,.5);box-shadow:0 0 0 3px rgba(120,52,255,.07)}
+.primary.compact{min-height:40px;margin:0;padding:0 14px;white-space:nowrap}
+.portfolio-head{min-height:34px;color:#615d69;font-size:9px;text-transform:uppercase;letter-spacing:.09em}
+.danger-icon{width:30px;height:30px;display:inline-grid;place-items:center;border:1px solid rgba(255,95,143,.12);border-radius:9px;background:rgba(255,95,143,.035);color:#946071;cursor:pointer}
+.danger-icon:hover{color:#ff7da2;border-color:rgba(255,95,143,.3);background:rgba(255,95,143,.08)}
+.alert-row.triggered{border-color:rgba(255,189,91,.2);box-shadow:inset 2px 0 #ffbd5b}
+.status-triggered{font-size:8px;border-radius:999px;padding:5px 8px;color:#ffcf7b;background:rgba(255,189,91,.08)}
+.primary:disabled{opacity:.48;cursor:not-allowed;transform:none!important}
+@media(max-width:1050px){.market-tool-form,.market-tool-form.alert-form{grid-template-columns:1fr 1fr}.market-tool-form .primary{min-height:40px}}
+@media(max-width:620px){.market-tool-form,.market-tool-form.alert-form{grid-template-columns:1fr}.market-tool-form .primary{width:100%}.alert-row{grid-template-columns:38px 1fr auto 30px;gap:8px}}
