@@ -7,6 +7,7 @@ import {fetchCurrentUser,getStoredUser,getToken,logout} from './services/auth.js
 import Brand,{KryvionMark} from './components/Brand.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import PeterAccountGateway from './components/PeterAccountGateway.jsx';
+import AdvancedMarketCharts from './components/AdvancedMarketCharts.jsx';
 import './styles.css';
 
 const fallback=[
@@ -136,6 +137,8 @@ function App({user,onLogout}){
       <div className="metric-card"><span className="metric-icon"><FiDollarSign/></span><small>Mercado monitorado</small><strong>R$ {(totalMarket/1e12).toFixed(1)} tri</strong><em>liquidez agregada</em></div>
       <div className="metric-card"><span className="metric-icon"><FiActivity/></span><small>Opportunity Index</small><strong>{sentiment}/100</strong><em>{sentiment>70?'favorável':'seletivo'}</em></div>
      </div>
+
+     <AdvancedMarketCharts assets={assets} regime={regime}/>
 
      <div className="section-grid">
       <div className="panel span-2">
