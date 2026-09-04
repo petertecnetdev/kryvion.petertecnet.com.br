@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { startTelemetry, trackTelemetry } from './telemetry.js';
+import { startTelemetry, trackTelemetry, flushTelemetry } from './telemetry.js';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.petertecnet.com.br/api';
 export const APP_SLUG = import.meta.env.VITE_APP_SLUG || 'kryvion';
@@ -114,7 +114,7 @@ api.interceptors.response.use(
     recordApiOutcome(response.config, response.status, 'success');
     return response;
   },
-  (error) => {
+  async (error) => {
     recordApiOutcome(
       error?.config,
       error?.response?.status || 0,
@@ -123,6 +123,20 @@ api.interceptors.response.use(
     );
 
     if (error?.response?.status === 401) {
+      trackTelemetry('session_expired', {
+        label: 'Sessão expirada ou não autorizada',
+        target: cleanPath(error?.config?.url),
+        metadata: {
+          status: 401,
+          method: String(error?.config?.method || 'GET').toUpperCase(),
+        },
+      });
+
+      // O token ainda identifica o usuário neste momento. Envie os eventos de
+      // falha antes de limpar a sessão para não transformar a ocorrência em
+      // atividade anônima no Admin Center.
+      await flushTelemetry();
+
       ['token', 'petertecnet_token', 'access_token', 'auth_token', 'user']
         .forEach((key) => localStorage.removeItem(key));
       window.dispatchEvent(new Event('authChanged'));
