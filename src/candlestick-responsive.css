@@ -1,0 +1,62 @@
+/* Readability and touch refinements for the real OHLCV terminal. */
+body .kry-candle-terminal{padding:clamp(16px,1.6vw,24px);border-radius:clamp(18px,1.5vw,24px)}
+body .kry-candle-head{gap:16px;margin-bottom:16px}
+body .kry-candle-title small{font-size:var(--kry-fs-micro);line-height:1.35;letter-spacing:.12em}
+body .kry-candle-title h3{font-family:var(--kry-font-display);font-size:clamp(1.05rem,.98rem + .3vw,1.28rem);font-weight:650;line-height:1.3;letter-spacing:-.025em}
+body .kry-candle-title p{font-size:var(--kry-fs-xs);line-height:1.5;color:#8994ad}
+body .kry-candle-controls select{min-height:40px;font-size:var(--kry-fs-xs);line-height:1.35}
+body .kry-candle-timeframes button,
+body .kry-candle-refresh{min-height:38px;font-size:var(--kry-fs-micro);line-height:1.25}
+body .kry-candle-refresh{width:38px;height:38px}
+body .kry-candle-stats{gap:8px;margin-bottom:14px}
+body .kry-candle-stats>span{padding:9px 10px;font-size:var(--kry-fs-micro);line-height:1.35;letter-spacing:.06em;color:#7986a2}
+body .kry-candle-stats strong{font-size:var(--kry-fs-xs);line-height:1.35;color:#e4e9f5}
+body .kry-candle-frame{height:clamp(340px,38vw,500px)}
+body .kry-candle-frame .axis-text,
+body .kry-candle-frame .price-tag{font-size:10px}
+body .kry-candle-tooltip{max-width:calc(100% - 24px);min-width:min(250px,calc(100% - 24px));padding:11px 12px}
+body .kry-candle-tooltip>small{font-size:var(--kry-fs-micro);line-height:1.35}
+body .kry-candle-tooltip>div{font-size:var(--kry-fs-micro);line-height:1.4}
+body .kry-candle-legend span{font-size:var(--kry-fs-micro);line-height:1.35}
+body .kry-candle-loading{font-size:var(--kry-fs-xs);line-height:1.4}
+body .kry-candle-error b{font-size:var(--kry-fs-sm);line-height:1.4}
+body .kry-candle-error span{font-size:var(--kry-fs-xs);line-height:1.5}
+body .kry-candle-error small,
+body .kry-candle-error button,
+body .kry-candle-foot{font-size:var(--kry-fs-micro);line-height:1.5}
+body .kry-candle-error button{min-height:38px;padding:8px 12px}
+
+@media(max-width:760px){
+  body .kry-candle-terminal{padding:15px;border-radius:17px}
+  body .kry-candle-head{flex-direction:column;gap:12px}
+  body .kry-candle-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;width:100%;gap:8px}
+  body .kry-candle-controls select{width:100%;min-width:0}
+  body .kry-candle-timeframes{grid-column:1/-1;grid-row:2;width:100%;overflow-x:auto}
+  body .kry-candle-timeframes button{flex:1;min-width:44px;min-height:40px}
+  body .kry-candle-refresh{width:40px;height:40px}
+  body .kry-candle-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body .kry-candle-frame{height:clamp(340px,82vw,430px)}
+  body .kry-candle-tooltip{top:9px;left:9px;min-width:min(220px,calc(100% - 18px));max-width:calc(100% - 18px)}
+  body .kry-candle-legend{right:10px;bottom:8px;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  body .kry-candle-foot{align-items:flex-start;flex-wrap:wrap;gap:7px 12px}
+  body .kry-candle-foot em{width:100%;margin-left:0}
+}
+
+@media(max-width:560px){
+  body .kry-candle-title h3{font-size:1.05rem}
+  body .kry-candle-title p{font-size:.78rem}
+  body .kry-candle-controls select{font-size:16px}
+  body .kry-candle-stats>span{padding:8px}
+  body .kry-candle-frame{height:360px;border-radius:13px}
+  body .kry-candle-frame .axis-text,
+  body .kry-candle-frame .price-tag{font-size:9.5px}
+  body .kry-candle-tooltip>div{grid-template-columns:20px 1fr 36px 1fr;gap:4px}
+  body .kry-candle-legend{position:static;margin-top:8px;justify-content:flex-start}
+}
+
+@media(max-width:390px){
+  body .kry-candle-terminal{padding:12px}
+  body .kry-candle-stats{gap:6px}
+  body .kry-candle-stats>span{padding:7px}
+  body .kry-candle-frame{height:330px}
+}
