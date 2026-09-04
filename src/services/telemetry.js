@@ -1,8 +1,22 @@
 const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|card|cpf|document|authorization|code/i;
-const TELEMETRY_SCHEMA = '2';
+const TELEMETRY_SCHEMA = '3';
+
+let activeTelemetry = null;
+
+export function trackTelemetry(type, details = {}) {
+  if (!activeTelemetry) return false;
+  activeTelemetry.enqueue(type, details);
+  if (details.immediate) activeTelemetry.flush(true);
+  return true;
+}
+
+export function flushTelemetry() {
+  return activeTelemetry?.flush(true);
+}
 
 export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => localStorage.getItem('token') }) {
-  if (typeof window === 'undefined' || window.__peterTelemetryStarted) return () => {};
+  if (typeof window === 'undefined') return () => {};
+  if (window.__peterTelemetryStarted && activeTelemetry) return activeTelemetry.stop || (() => {});
 
   const normalizedSlug = String(appSlug || '').trim().toLowerCase();
   if (!normalizedSlug) return () => {};
@@ -14,11 +28,16 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
   const sessionId = sessionStorage.getItem(sessionKey) || createId();
   sessionStorage.setItem(sessionKey, sessionId);
 
+  const sessionStartedAt = Date.now();
   let queue = [];
   let lastPath = page();
+  let lastScreen = '';
+  let lastScreenStartedAt = Date.now();
   let scrollMilestones = new Set();
   let flushing = false;
   let sessionEnded = false;
+  let inputTimer = null;
+  let screenTimer = null;
 
   function createId() {
     return window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -26,6 +45,16 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
 
   function clean(value, limit = 200) {
     return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
+  }
+
+  function slug(value) {
+    return clean(value, 160)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 100);
   }
 
   function safeUrl(value, relativeForSameOrigin = true) {
@@ -44,22 +73,27 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
     return window.location.pathname;
   }
 
-  function enqueue(type, details = {}) {
+  function normalizeMetadata(details = {}) {
     const metadata = {};
     for (const [key, value] of Object.entries(details.metadata || {})) {
-      if (!SENSITIVE_KEY_PATTERN.test(key) && value !== undefined && value !== null) {
-        metadata[key] = clean(value, 500);
-      }
+      if (SENSITIVE_KEY_PATTERN.test(key) || value === undefined || value === null) continue;
+      if (typeof value === 'boolean' || typeof value === 'number') metadata[key] = value;
+      else if (Array.isArray(value)) metadata[key] = value.slice(0, 20).map((item) => clean(item, 120));
+      else metadata[key] = clean(value, 500);
     }
+    return metadata;
+  }
 
+  function enqueue(type, details = {}) {
+    const eventType = clean(type || 'interaction', 80) || 'interaction';
     queue.push({
       id: createId(),
-      type,
+      type: eventType,
       timestamp: new Date().toISOString(),
       page: page(),
-      label: clean(details.label),
+      label: clean(details.label || eventType),
       target: clean(details.target),
-      metadata,
+      metadata: normalizeMetadata(details),
     });
 
     if (queue.length >= 20) flush();
@@ -99,6 +133,35 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
     }
   }
 
+  function contextOf(element) {
+    const container = element?.closest?.('form,article,section,.panel,.kry-chart-panel,.kry-candle-terminal,.sidebar,header');
+    if (!container) return '';
+    const heading = container.querySelector?.('h1,h2,h3,h4,[data-telemetry-title]');
+    return clean(heading?.textContent || container.getAttribute?.('aria-label') || container.className || '', 160);
+  }
+
+  function labelOf(element) {
+    return clean(
+      element?.dataset?.track
+      || element?.getAttribute?.('aria-label')
+      || element?.getAttribute?.('title')
+      || element?.textContent
+      || element?.name
+      || element?.id
+      || element?.tagName,
+      180,
+    );
+  }
+
+  function trackedDataset(element) {
+    const result = {};
+    for (const [key, value] of Object.entries(element?.dataset || {})) {
+      if (key === 'track' || SENSITIVE_KEY_PATTERN.test(key)) continue;
+      if (value !== undefined && value !== null) result[`data_${key}`] = clean(value, 200);
+    }
+    return result;
+  }
+
   function deferNavigation(source) {
     const callback = () => recordNavigation(source);
     if (typeof window.queueMicrotask === 'function') window.queueMicrotask(callback);
@@ -111,6 +174,33 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
     enqueue('navigation', { label: current, metadata: { from: lastPath, source } });
     lastPath = current;
     scrollMilestones = new Set();
+    scheduleScreenDetection('route');
+  }
+
+  function detectScreen(source = 'dom') {
+    const heading = document.querySelector('main h1, main [data-telemetry-screen], h1[data-telemetry-screen]');
+    const screen = clean(heading?.textContent || page(), 160);
+    if (!screen || screen === lastScreen) return;
+
+    const now = Date.now();
+    enqueue('screen_view', {
+      label: screen,
+      target: slug(screen),
+      metadata: {
+        screen: slug(screen),
+        previous_screen: slug(lastScreen),
+        previous_duration_ms: lastScreen ? now - lastScreenStartedAt : 0,
+        source,
+      },
+    });
+    lastScreen = screen;
+    lastScreenStartedAt = now;
+    scrollMilestones = new Set();
+  }
+
+  function scheduleScreenDetection(source = 'dom') {
+    window.clearTimeout(screenTimer);
+    screenTimer = window.setTimeout(() => detectScreen(source), 40);
   }
 
   function onClick(event) {
@@ -119,39 +209,77 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
 
     const href = element.getAttribute('href');
     const destination = safeUrl(href);
+    const label = labelOf(element);
+    const context = contextOf(element);
 
     enqueue('click', {
-      label: element.dataset?.track || element.getAttribute('aria-label') || element.textContent || element.name || element.id || element.tagName,
+      label,
       target: destination || element.id || element.name || element.tagName,
       metadata: {
         tag: element.tagName,
         destination,
+        context,
+        ui_action: slug([context, label].filter(Boolean).join(' ')),
+        ...trackedDataset(element),
       },
     });
+
+    scheduleScreenDetection('click');
   }
 
   function onSubmit(event) {
     const form = event.target;
     if (form.closest?.('[data-telemetry-ignore]')) return;
 
-    const identity = form.getAttribute('aria-label') || form.name || form.id || 'formulário';
+    const context = contextOf(form);
+    const identity = form.getAttribute('aria-label') || form.name || form.id || context || 'formulário';
     const searchForm = /search|busca|pesquisa/i.test(identity);
     enqueue(searchForm ? 'search' : 'form_submit', {
       label: identity,
       target: safeUrl(form.action) || page(),
-      metadata: { method: form.method || 'GET' },
+      metadata: { method: form.method || 'GET', context, ui_action: slug(`${identity} submit`) },
     });
   }
 
   function onChange(event) {
     const element = event.target;
-    if (!element?.matches?.("select,input[type='checkbox'],input[type='radio']") || element.closest?.('[data-telemetry-ignore]')) return;
+    if (!element?.matches?.("select,input[type='checkbox'],input[type='radio'],input[type='range']") || element.closest?.('[data-telemetry-ignore]')) return;
 
-    enqueue(element.matches('select') ? 'filter' : 'field_change', {
-      label: element.getAttribute('aria-label') || element.name || element.id || element.type,
+    const context = contextOf(element);
+    const label = element.getAttribute('aria-label') || element.name || element.id || context || element.type;
+    const isSelect = element.matches('select');
+    const isRange = element.matches("input[type='range']");
+    const metadata = {
+      control: element.type || element.tagName,
+      context,
+      ui_action: slug([context, label, 'changed'].filter(Boolean).join(' ')),
+    };
+
+    if (element.matches("input[type='checkbox'],input[type='radio']")) metadata.checked = Boolean(element.checked);
+    if (isSelect || isRange) metadata.value = clean(element.value, 120);
+
+    enqueue(isSelect ? 'filter' : 'field_change', {
+      label,
       target: element.id || element.name || element.tagName,
-      metadata: { control: element.type || element.tagName, checked: element.checked },
+      metadata,
     });
+  }
+
+  function onInput(event) {
+    const element = event.target;
+    if (!element?.matches?.("input[type='search'],input[placeholder*='Buscar' i],input[placeholder*='Pesquisar' i]") || element.closest?.('[data-telemetry-ignore]')) return;
+
+    window.clearTimeout(inputTimer);
+    inputTimer = window.setTimeout(() => {
+      enqueue('search_input', {
+        label: element.getAttribute('aria-label') || element.placeholder || 'Busca',
+        target: element.id || element.name || element.tagName,
+        metadata: {
+          context: contextOf(element),
+          query_length: String(element.value || '').length,
+        },
+      });
+    }, 700);
   }
 
   function onScroll() {
@@ -161,22 +289,33 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
     for (const milestone of [25, 50, 75, 100]) {
       if (percentage >= milestone && !scrollMilestones.has(milestone)) {
         scrollMilestones.add(milestone);
-        enqueue('scroll', { label: `${milestone}% da página`, metadata: { milestone } });
+        enqueue('scroll', {
+          label: `${milestone}% da tela`,
+          metadata: { milestone, screen: slug(lastScreen) },
+        });
       }
     }
+  }
+
+  function onVisibilityChange() {
+    enqueue('visibility_change', {
+      label: document.visibilityState === 'visible' ? 'Aplicação em foco' : 'Aplicação em segundo plano',
+      metadata: { state: document.visibilityState, screen: slug(lastScreen) },
+    });
+    if (document.visibilityState === 'hidden') flush(true);
   }
 
   function onError(event) {
     enqueue('frontend_error', {
       label: event.message || 'Erro JavaScript',
-      metadata: { source: safeUrl(event.filename, false), line: event.lineno, column: event.colno },
+      metadata: { source: safeUrl(event.filename, false), line: event.lineno, column: event.colno, screen: slug(lastScreen) },
     });
   }
 
   function onRejection(event) {
     enqueue('frontend_error', {
       label: event.reason?.message || 'Promise rejeitada',
-      metadata: { kind: 'unhandledrejection' },
+      metadata: { kind: 'unhandledrejection', screen: slug(lastScreen) },
     });
   }
 
@@ -187,7 +326,14 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
   function onPageHide() {
     if (!sessionEnded) {
       sessionEnded = true;
-      enqueue('session_end', { label: 'Sessão encerrada' });
+      enqueue('session_end', {
+        label: 'Sessão encerrada',
+        metadata: {
+          duration_ms: Date.now() - sessionStartedAt,
+          last_screen: slug(lastScreen),
+          last_screen_duration_ms: Date.now() - lastScreenStartedAt,
+        },
+      });
     }
     flush(true);
   }
@@ -205,9 +351,14 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
     return result;
   };
 
+  const observer = new MutationObserver(() => scheduleScreenDetection('dom'));
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
   document.addEventListener('click', onClick, true);
   document.addEventListener('submit', onSubmit, true);
   document.addEventListener('change', onChange, true);
+  document.addEventListener('input', onInput, true);
+  document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('popstate', onPopState);
   window.addEventListener('error', onError);
   window.addEventListener('unhandledrejection', onRejection);
@@ -225,16 +376,21 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
     },
   });
 
-  // Não espere o primeiro ciclo periódico para registrar um acesso recém-aberto.
+  scheduleScreenDetection('session_start');
   flush();
   const timer = window.setInterval(flush, 5000);
 
-  return () => {
+  function stop() {
     window.clearInterval(timer);
+    window.clearTimeout(inputTimer);
+    window.clearTimeout(screenTimer);
     onPageHide();
+    observer.disconnect();
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('submit', onSubmit, true);
     document.removeEventListener('change', onChange, true);
+    document.removeEventListener('input', onInput, true);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('popstate', onPopState);
     window.removeEventListener('error', onError);
     window.removeEventListener('unhandledrejection', onRejection);
@@ -243,5 +399,9 @@ export function startTelemetry({ apiBaseUrl, appSlug, appId, getToken = () => lo
     window.history.pushState = originalPush;
     window.history.replaceState = originalReplace;
     window.__peterTelemetryStarted = false;
-  };
+    if (activeTelemetry?.sessionId === sessionId) activeTelemetry = null;
+  }
+
+  activeTelemetry = { enqueue, flush, stop, sessionId, appSlug: normalizedSlug };
+  return stop;
 }
