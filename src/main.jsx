@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {LineChart,Line,ResponsiveContainer,AreaChart,Area,Tooltip,XAxis,YAxis,CartesianGrid} from 'recharts';
-import {FiActivity,FiBarChart2,FiBell,FiBriefcase,FiCompass,FiDollarSign,FiLogOut,FiMenu,FiPieChart,FiPlus,FiRefreshCw,FiSearch,FiShield,FiTrendingUp,FiX} from 'react-icons/fi';
+import {FiActivity,FiBarChart2,FiBell,FiBriefcase,FiCompass,FiDollarSign,FiLogOut,FiMenu,FiPieChart,FiPlus,FiRefreshCw,FiSearch,FiShield,FiTrash2,FiTrendingUp,FiX} from 'react-icons/fi';
 import {marketApi} from './services/api.js';
 import {fetchCurrentUser,getStoredUser,getToken,logout} from './services/auth.js';
 import Brand,{KryvionMark} from './components/Brand.jsx';
@@ -235,12 +235,12 @@ function App({user,onLogout}){
      </div>}
     </>}
 
-    {page==='radar'&&<Radar assets={assets}/>} 
-    {page==='signals'&&<Signals assets={assets}/>} 
-    {page==='portfolio'&&<Portfolio positions={positions} total={portfolioValue} flash={flash}/>} 
-    {page==='simulator'&&<Simulator total={portfolioValue} simMove={simMove} setSimMove={setSimMove} simValue={simValue}/>} 
-    {page==='alerts'&&<Alerts alerts={alerts} flash={flash}/>} 
-    {page==='risk'&&<Risk flash={flash}/>} 
+    {page==='radar'&&<Radar assets={assets}/>}
+    {page==='signals'&&<Signals assets={assets}/>}
+    {page==='portfolio'&&<Portfolio positions={positions} total={portfolioValue} assets={assets} setPositions={setPositions} flash={flash}/>}
+    {page==='simulator'&&<Simulator total={portfolioValue} simMove={simMove} setSimMove={setSimMove} simValue={simValue}/>}
+    {page==='alerts'&&<Alerts alerts={alerts} assets={assets} setAlerts={setAlerts} flash={flash}/>}
+    {page==='risk'&&<Risk flash={flash}/>}
    </section>
   </main>
 
@@ -257,8 +257,64 @@ function Signals({assets}){
  return <div className="signals-grid">{assets.map((asset)=><div className="signal-card" key={asset.id}><div className={`signal-icon ${asset.score>=75?'positive':asset.score<60?'negative':'neutral'}`}><FiActivity/></div><div><small>Leitura do snapshot atual · {asset.symbol}</small><h3>{asset.score>=75?'Momentum e liquidez alinhados':asset.score>=60?'Confluência parcial':'Risco supera oportunidade'}</h3><p>{asset.score>=75?'Tendência de 7 dias, volume e estrutura favorecem entrada fracionada.':'O motor recomenda confirmação adicional antes de aumentar exposição.'}</p><div className="signal-meta"><span>Score {asset.score}</span><span>Confiança {asset.confidence||60}%</span><span>{asset.risk}</span></div></div></div>)}</div>;
 }
 
-function Portfolio({positions,total,flash}){
- return <><div className="hero-grid"><div className="metric-card"><span className="metric-icon"><FiBriefcase/></span><small>Valor atual</small><strong>{fmtBRL(total)}</strong><em>{positions.length} posições</em></div><div className="metric-card"><span className="metric-icon"><FiPieChart/></span><small>Concentração</small><strong>{positions.length?Math.round(100/positions.length):0}%</strong><em>maior posição estimada</em></div><div className="metric-card"><span className="metric-icon"><FiShield/></span><small>Saúde da carteira</small><strong>{positions.length?'74/100':'—'}</strong><em>diversificação e risco</em></div></div><div className="panel"><div className="panel-head"><div><small>PORTFÓLIO</small><h3>Posições e exposição</h3></div><button onClick={()=>flash('Cadastro de posição usa o endpoint genérico /market/positions.')}><FiPlus/> Adicionar posição</button></div>{positions.length?<div className="asset-table">{positions.map((position,index)=><div className="table-row" key={position.id||index}><span className="asset-name"><b>{position.symbol}</b><small>{position.name||position.asset_id}</small></span><span>{position.quantity} un.</span><span>{fmtBRL(position.average_price)}</span><span>{fmtBRL(position.current_value||0)}</span><span className={(position.pnl_percent||0)>=0?'up':'down'}>{pct(position.pnl_percent||0)}</span><span className="pill watch">Monitorando</span></div>)}</div>:<div className="empty"><FiBriefcase/><h3>Nenhuma posição registrada</h3><p>Adicione suas posições para medir P/L, concentração, correlação e risco agregado.</p></div>}</div></>;
+function Portfolio({positions,total,assets,setPositions,flash}){
+ const [editing,setEditing]=useState(false);
+ const [assetId,setAssetId]=useState(assets[0]?.id||'');
+ const [quantity,setQuantity]=useState('');
+ const [averagePrice,setAveragePrice]=useState('');
+ const [saving,setSaving]=useState(false);
+ const pnl=positions.reduce((sum,position)=>sum+Number(position.pnl_amount||0),0);
+ const concentration=total>0?Math.max(0,...positions.map((position)=>Number(position.current_value||0)))/total*100:0;
+
+ useEffect(()=>{
+  if(!assetId&&assets[0]?.id)setAssetId(assets[0].id);
+ },[assetId,assets]);
+
+ const refresh=async()=>{
+  const response=await marketApi.portfolio();
+  const data=response.data?.data||response.data;
+  setPositions(data?.positions||[]);
+ };
+
+ const submit=async(event)=>{
+  event.preventDefault();
+  if(!assetId||Number(quantity)<=0||Number(averagePrice)<=0){flash('Informe ativo, quantidade e preço médio válidos.');return;}
+  setSaving(true);
+  try{
+   await marketApi.addPosition({asset_id:assetId,quantity:Number(quantity),average_price:Number(averagePrice)});
+   await refresh();
+   setQuantity('');setAveragePrice('');setEditing(false);
+   flash('Posição adicionada e precificada com o mercado atual.');
+  }catch(error){
+   flash(error?.response?.data?.message||'Não foi possível adicionar a posição.');
+  }finally{setSaving(false);}
+ };
+
+ const remove=async(id)=>{
+  try{
+   await marketApi.removePosition(id);
+   setPositions((current)=>current.filter((position)=>position.id!==id));
+   flash('Posição removida.');
+  }catch(error){flash(error?.response?.data?.message||'Não foi possível remover a posição.');}
+ };
+
+ return <>
+  <div className="hero-grid">
+   <div className="metric-card"><span className="metric-icon"><FiBriefcase/></span><small>Valor atual</small><strong>{fmtBRL(total)}</strong><em>{positions.length} posições</em></div>
+   <div className="metric-card"><span className="metric-icon"><FiPieChart/></span><small>Maior exposição</small><strong>{positions.length?`${concentration.toFixed(1)}%`:'—'}</strong><em>concentração atual</em></div>
+   <div className="metric-card"><span className="metric-icon"><FiTrendingUp/></span><small>P/L atual</small><strong className={pnl>=0?'up':'down'}>{positions.length?fmtBRL(pnl):'—'}</strong><em>marcação pelo preço atual</em></div>
+  </div>
+  <div className="panel">
+   <div className="panel-head"><div><small>PORTFÓLIO</small><h3>Posições e exposição</h3></div><button onClick={()=>setEditing((value)=>!value)}><FiPlus/> {editing?'Fechar':'Adicionar posição'}</button></div>
+   {editing&&<form className="market-tool-form" onSubmit={submit}>
+    <label>Ativo<select value={assetId} onChange={(event)=>setAssetId(event.target.value)}>{assets.map((asset)=><option key={asset.id} value={asset.id}>{asset.symbol} · {asset.name}</option>)}</select></label>
+    <label>Quantidade<input type="number" min="0" step="any" value={quantity} onChange={(event)=>setQuantity(event.target.value)} placeholder="0,00"/></label>
+    <label>Preço médio (BRL)<input type="number" min="0" step="any" value={averagePrice} onChange={(event)=>setAveragePrice(event.target.value)} placeholder="0,00"/></label>
+    <button className="primary compact" disabled={saving}>{saving?'Salvando…':'Salvar posição'}</button>
+   </form>}
+   {positions.length?<div className="asset-table"><div className="table-row portfolio-head"><span>Ativo</span><span>Quantidade</span><span>Preço médio</span><span>Valor atual</span><span>P/L</span><span>Ações</span></div>{positions.map((position,index)=><div className="table-row" key={position.id||index}><span className="asset-name"><b>{position.symbol}</b><small>{position.name||position.asset_id}</small></span><span>{Number(position.quantity).toLocaleString('pt-BR',{maximumFractionDigits:8})}</span><span>{fmtBRL(position.average_price)}</span><span>{fmtBRL(position.current_value||0)}</span><span className={(position.pnl_percent||0)>=0?'up':'down'}>{pct(position.pnl_percent||0)}</span><span><button className="danger-icon" onClick={()=>remove(position.id)} title="Remover posição"><FiTrash2/></button></span></div>)}</div>:<div className="empty"><FiBriefcase/><h3>Nenhuma posição registrada</h3><p>Adicione suas posições para medir P/L, concentração e exposição com preços atuais.</p></div>}
+  </div>
+ </>;
 }
 
 function Simulator({total,simMove,setSimMove,simValue}){
@@ -266,28 +322,89 @@ function Simulator({total,simMove,setSimMove,simValue}){
  return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>STRESS TEST</small><h3>Impacto na carteira</h3></div></div><div className="chart-big"><ResponsiveContainer width="100%" height={320}><AreaChart data={chart}><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b3dff" stopOpacity={.5}/><stop offset="100%" stopColor="#8b3dff" stopOpacity={0}/></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.06)" vertical={false}/><XAxis dataKey="move" stroke="#727a95"/><YAxis stroke="#727a95" tickFormatter={(value)=>`R$${Math.round(value/1000)}k`}/><Tooltip formatter={(value)=>fmtBRL(value)}/><Area dataKey="value" stroke="#aa63ff" fill="url(#fill)"/></AreaChart></ResponsiveContainer></div></div><div className="panel simulator-control"><small>CENÁRIO</small><h3>Choque de mercado</h3><input type="range" min="-50" max="50" step="1" value={simMove} onChange={(event)=>setSimMove(event.target.value)}/><strong className={simMove>=0?'up':'down'}>{simMove>0?'+':''}{simMove}%</strong><div className="projection"><span>Carteira hoje<b>{fmtBRL(total)}</b></span><span>Após cenário<b>{fmtBRL(simValue)}</b></span><span>Impacto<b className={simMove>=0?'up':'down'}>{fmtBRL(simValue-total)}</b></span></div><p>Simulação simplificada e não probabilística. O motor de cenários pode receber correlações por ativo via API.</p></div></div>;
 }
 
-function Alerts({alerts,flash}){
- const add=()=>flash('Criação de alertas ainda não está disponível na API. Nenhum alerta fictício foi criado.');
- return <div className="panel"><div className="panel-head"><div><small>SMART ALERTS</small><h3>Condições de mercado</h3></div><button onClick={add}><FiPlus/> Novo alerta</button></div>{alerts.length?<div className="alerts-list">{alerts.map((alert)=><div className="alert-row" key={alert.id}><div className="coin">{String(alert.asset||alert.asset_symbol||'A').slice(0,1)}</div><div><b>{alert.asset||alert.asset_symbol}</b><small>{alert.condition||alert.rule}</small></div><span className={alert.active!==false?'status-on':'status-off'}>{alert.active!==false?'Ativo':'Pausado'}</span><FiBell/></div>)}</div>:<div className="empty"><FiBell/><h3>Nenhum alerta sincronizado</h3><p>A Kryvion não exibirá alertas de demonstração como se fossem alertas reais da sua conta.</p></div>}</div>;
+function Alerts({alerts,assets,setAlerts,flash}){
+ const [editing,setEditing]=useState(false);
+ const [assetId,setAssetId]=useState(assets[0]?.id||'');
+ const [metric,setMetric]=useState('price');
+ const [operator,setOperator]=useState('>');
+ const [threshold,setThreshold]=useState('');
+ const [saving,setSaving]=useState(false);
+
+ useEffect(()=>{
+  if(!assetId&&assets[0]?.id)setAssetId(assets[0].id);
+ },[assetId,assets]);
+
+ const submit=async(event)=>{
+  event.preventDefault();
+  if(!assetId||threshold===''){flash('Defina o ativo e o valor do gatilho.');return;}
+  setSaving(true);
+  try{
+   const response=await marketApi.addAlert({asset_id:assetId,metric,operator,threshold:Number(threshold),active:true});
+   const alert=response.data?.data||response.data;
+   setAlerts((current)=>[alert,...current.filter((item)=>item.id!==alert.id)]);
+   setThreshold('');setEditing(false);
+   flash('Alerta de mercado criado.');
+  }catch(error){flash(error?.response?.data?.message||'Não foi possível criar o alerta.');}
+  finally{setSaving(false);}
+ };
+
+ const remove=async(id)=>{
+  try{
+   await marketApi.removeAlert(id);
+   setAlerts((current)=>current.filter((alert)=>alert.id!==id));
+   flash('Alerta removido.');
+  }catch(error){flash(error?.response?.data?.message||'Não foi possível remover o alerta.');}
+ };
+
+ return <div className="panel">
+  <div className="panel-head"><div><small>SMART ALERTS</small><h3>Condições de mercado</h3></div><button onClick={()=>setEditing((value)=>!value)}><FiPlus/> {editing?'Fechar':'Novo alerta'}</button></div>
+  {editing&&<form className="market-tool-form alert-form" onSubmit={submit}>
+   <label>Ativo<select value={assetId} onChange={(event)=>setAssetId(event.target.value)}>{assets.map((asset)=><option key={asset.id} value={asset.id}>{asset.symbol}</option>)}</select></label>
+   <label>Métrica<select value={metric} onChange={(event)=>setMetric(event.target.value)}><option value="price">Preço</option><option value="change_24h">Variação 24h</option><option value="change_7d">Variação 7d</option><option value="score">Opportunity Score</option><option value="confidence">Confiança</option></select></label>
+   <label>Condição<select value={operator} onChange={(event)=>setOperator(event.target.value)}><option value=">">maior que</option><option value=">=">maior ou igual</option><option value="<">menor que</option><option value="<=">menor ou igual</option></select></label>
+   <label>Valor<input type="number" step="any" value={threshold} onChange={(event)=>setThreshold(event.target.value)} placeholder="Gatilho"/></label>
+   <button className="primary compact" disabled={saving}>{saving?'Criando…':'Criar alerta'}</button>
+  </form>}
+  {alerts.length?<div className="alerts-list">{alerts.map((alert)=><div className={`alert-row ${alert.triggered?'triggered':''}`} key={alert.id}><div className="coin">{String(alert.asset||alert.asset_symbol||'A').slice(0,1)}</div><div><b>{alert.asset||alert.asset_symbol}</b><small>{alert.condition||alert.rule}</small></div><span className={alert.triggered?'status-triggered':alert.active!==false?'status-on':'status-off'}>{alert.triggered?'Disparado':alert.active!==false?'Ativo':'Pausado'}</span><button className="danger-icon" onClick={()=>remove(alert.id)} title="Remover alerta"><FiTrash2/></button></div>)}</div>:<div className="empty"><FiBell/><h3>Nenhum alerta configurado</h3><p>Crie condições por preço, variação, score ou confiança e acompanhe quando forem atingidas.</p></div>}
+ </div>;
 }
 
 function Risk({flash}){
  const [level,setLevel]=useState('moderado');
  const [maxAsset,setMaxAsset]=useState(25);
  const [maxLoss,setMaxLoss]=useState(8);
+ const [minReserve,setMinReserve]=useState(15);
+ const [loading,setLoading]=useState(true);
  const [saving,setSaving]=useState(false);
+
+ useEffect(()=>{
+  let active=true;
+  marketApi.risk().then((response)=>{
+   const data=response.data?.data||response.data;
+   if(!active||!data)return;
+   setLevel(data.risk_profile||'moderado');
+   setMaxAsset(Number(data.max_asset_exposure??25));
+   setMaxLoss(Number(data.max_scenario_loss??8));
+   setMinReserve(Number(data.min_liquidity_reserve??15));
+  }).catch((error)=>{
+   if(active)flash(error?.response?.data?.message||'Não foi possível carregar sua política de risco.');
+  }).finally(()=>{if(active)setLoading(false);});
+  return()=>{active=false;};
+ },[]);
+
  const save=async()=>{
   setSaving(true);
   try{
-   await marketApi.saveRisk({risk_profile:level,max_asset_exposure:Number(maxAsset),max_scenario_loss:Number(maxLoss)});
+   const response=await marketApi.saveRisk({risk_profile:level,max_asset_exposure:Number(maxAsset),max_scenario_loss:Number(maxLoss),min_liquidity_reserve:Number(minReserve)});
+   const data=response.data?.data||response.data;
+   if(data){setLevel(data.risk_profile||level);setMaxAsset(Number(data.max_asset_exposure??maxAsset));setMaxLoss(Number(data.max_scenario_loss??maxLoss));setMinReserve(Number(data.min_liquidity_reserve??minReserve));}
    flash('Política de risco salva na sua conta.');
   }catch(error){
-   flash(error?.response?.status===404?'Política de risco ainda não está disponível na API. Nada foi salvo.':error?.response?.data?.message||'Não foi possível salvar a política de risco.');
-  }finally{
-   setSaving(false);
-  }
+   flash(error?.response?.data?.message||'Não foi possível salvar a política de risco.');
+  }finally{setSaving(false);}
  };
- return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>RISK GUARDIAN</small><h3>Política pessoal de risco</h3></div><span className="pill wait">configuração</span></div><div className="risk-form"><label>Perfil<select value={level} onChange={(event)=>setLevel(event.target.value)}><option value="conservador">conservador</option><option value="moderado">moderado</option><option value="agressivo">agressivo</option></select></label><label>Exposição máxima por ativo <b>{maxAsset}%</b><input type="range" min="5" max="60" value={maxAsset} onChange={(event)=>setMaxAsset(event.target.value)}/></label><label>Perda máxima tolerada no cenário <b>{maxLoss}%</b><input type="range" min="2" max="30" value={maxLoss} onChange={(event)=>setMaxLoss(event.target.value)}/></label><button className="primary" onClick={save} disabled={saving}><FiShield/> {saving?'Salvando…':'Salvar política'}</button></div></div><div className="panel"><small>REGRAS DE PROTEÇÃO</small><h3>Guardrails propostos</h3><ul className="guard-list"><li><FiShield/> Reservar liquidez mínima</li><li><FiShield/> Reduzir alocação em volatilidade extrema</li><li><FiShield/> Bloquear concentração acima do limite</li><li><FiShield/> Exigir confiança mínima para sinais</li><li><FiShield/> Não executar ordens automaticamente</li></ul></div></div>;
+
+ return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>RISK GUARDIAN</small><h3>Política pessoal de risco</h3></div><span className={`pill ${loading?'wait':'buy'}`}>{loading?'carregando':'sincronizado'}</span></div><div className="risk-form"><label>Perfil<select value={level} onChange={(event)=>setLevel(event.target.value)} disabled={loading}><option value="conservador">conservador</option><option value="moderado">moderado</option><option value="agressivo">agressivo</option></select></label><label>Exposição máxima por ativo <b>{maxAsset}%</b><input type="range" min="5" max="100" value={maxAsset} onChange={(event)=>setMaxAsset(event.target.value)} disabled={loading}/></label><label>Perda máxima tolerada no cenário <b>{maxLoss}%</b><input type="range" min="1" max="90" value={maxLoss} onChange={(event)=>setMaxLoss(event.target.value)} disabled={loading}/></label><label>Reserva mínima de liquidez <b>{minReserve}%</b><input type="range" min="0" max="95" value={minReserve} onChange={(event)=>setMinReserve(event.target.value)} disabled={loading}/></label><button className="primary" onClick={save} disabled={saving||loading}><FiShield/> {saving?'Salvando…':'Salvar política'}</button></div></div><div className="panel"><small>REGRAS DE PROTEÇÃO</small><h3>Guardrails aplicados</h3><ul className="guard-list"><li><FiShield/> Preservar a reserva mínima configurada</li><li><FiShield/> Limitar exposição por ativo</li><li><FiShield/> Exibir cenários de perda antes de decisões</li><li><FiShield/> Exigir evidências e confiança nos sinais</li><li><FiShield/> Não executar ordens automaticamente</li></ul></div></div>;
 }
 
 function AuthRoot(){
