@@ -8,6 +8,7 @@ import Brand,{KryvionMark} from './components/Brand.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import PeterAccountGateway from './components/PeterAccountGateway.jsx';
 import AdvancedMarketCharts from './components/AdvancedMarketCharts.jsx';
+import CandlestickTerminal from './components/CandlestickTerminal.jsx';
 import './styles.css';
 
 const fallback=[
@@ -138,6 +139,7 @@ function App({user,onLogout}){
       <div className="metric-card"><span className="metric-icon"><FiActivity/></span><small>Opportunity Index</small><strong>{sentiment}/100</strong><em>{sentiment>70?'favorável':'seletivo'}</em></div>
      </div>
 
+     <CandlestickTerminal assets={assets}/>
      <AdvancedMarketCharts assets={assets} regime={regime}/>
 
      <div className="section-grid">
