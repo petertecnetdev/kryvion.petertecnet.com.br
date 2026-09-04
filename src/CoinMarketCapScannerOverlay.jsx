@@ -8,7 +8,7 @@ import './cmc-scanner.css';
 
 const POLL_MS=300000;
 const pct=(n)=>`${Number(n||0)>=0?'+':''}${Number(n||0).toFixed(2)}%`;
-const usd=(n)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD',notation:'compact',maximumFractionDigits:2}).format(Number(n||0));
+const rangePct=(a)=>`${Number(a.estimated_upside_min_pct||0).toFixed(1)}%–${Number(a.estimated_upside_max_pct||0).toFixed(1)}%`;
 
 function CoinMarketCapScanner(){
  const [data,setData]=useState(null);
@@ -25,15 +25,16 @@ function CoinMarketCapScanner(){
  },[]);
  useEffect(()=>{if(!getToken())return;load();const t=window.setInterval(()=>{if(document.visibilityState==='visible')load();},POLL_MS);return()=>window.clearInterval(t);},[load]);
  const rows=useMemo(()=>data?.opportunities||[],[data]);
+ const leader=rows[0];
  if(!getToken())return null;
  return <aside className={`cmc-scanner ${open?'open':''}`}>
-  <button className="cmc-launcher" onClick={()=>setOpen(v=>!v)}><span><FiTrendingUp/></span><div><small>COINMARKETCAP SCANNER</small><b>{rows[0]?`${rows[0].symbol} · score ${rows[0].breakout_score}`:'Analisando mercado'}</b></div>{open?<FiChevronDown/>:<FiChevronUp/>}</button>
+  <button className="cmc-launcher" onClick={()=>setOpen(v=>!v)}><span><FiTrendingUp/></span><div><small>RADAR DE POSSÍVEL ALTA</small><b>{leader?`${leader.symbol} · ${leader.estimated_window} · score ${leader.breakout_score}`:'Analisando mercado'}</b></div>{open?<FiChevronDown/>:<FiChevronUp/>}</button>
   {open&&<div className="cmc-body">
-   <div className="cmc-head"><div><small>ANÁLISE MULTIFATOR</small><h2>Radar de aceleração do mercado</h2><p>Ranking estatístico por momentum, expansão de volume, giro, liquidez e profundidade. Movimentos excessivamente esticados recebem penalidade.</p></div><button onClick={load} disabled={loading}><FiRefreshCw className={loading?'spin':''}/></button></div>
+   <div className="cmc-head"><div><small>PREVISÃO PROBABILÍSTICA</small><h2>Qual cripto pode acelerar — e quando</h2><p>O ranking combina aceleração de preço, momentum, expansão de volume, liquidez, profundidade e penalidade de sobreaquecimento. A janela indica quando o sinal atual tende a exigir confirmação, não uma promessa de alta.</p></div><button onClick={load} disabled={loading}><FiRefreshCw className={loading?'spin':''}/></button></div>
    {data&&<div className="cmc-stats"><span><small>LISTADAS</small><b>{Number(data.total_listed||0).toLocaleString('pt-BR')}</b></span><span><small>RECEBIDAS</small><b>{Number(data.total_received||0).toLocaleString('pt-BR')}</b></span><span><small>ELEGÍVEIS</small><b>{Number(data.total_eligible||0).toLocaleString('pt-BR')}</b></span></div>}
    {error&&<div className="cmc-error">{error}</div>}
-   {!data&&!error&&<div className="cmc-loading"><FiActivity className="spin"/> Processando CoinMarketCap…</div>}
-   <div className="cmc-list">{rows.slice(0,20).map((a,i)=><article key={a.id}><span className="cmc-pos">#{i+1}</span><span className="cmc-asset"><b>{a.symbol}</b><small>{a.name} · CMC #{a.cmc_rank}</small></span><span><small>1h</small><b className={a.change_1h>=0?'up':'down'}>{pct(a.change_1h)}</b></span><span><small>24h</small><b className={a.change_24h>=0?'up':'down'}>{pct(a.change_24h)}</b></span><span><small>Volume</small><b className={a.volume_change_24h>=0?'up':'down'}>{pct(a.volume_change_24h)}</b></span><span><small>Cap.</small><b>{usd(a.market_cap_usd)}</b></span><strong>{a.breakout_score}</strong></article>)}</div>
+   {!data&&!error&&<div className="cmc-loading"><FiActivity className="spin"/> Processando mercado…</div>}
+   <div className="cmc-list">{rows.slice(0,20).map((a,i)=><article key={a.id} title={a.timing_note||''}><span className="cmc-pos">#{i+1}</span><span className="cmc-asset"><b>{a.symbol}</b><small>{a.name} · confiança {a.confidence}%</small></span><span><small>Janela</small><b>{a.estimated_window||'—'}</b></span><span><small>Alta estimada</small><b className="up">{rangePct(a)}</b></span><span><small>24h</small><b className={a.change_24h>=0?'up':'down'}>{pct(a.change_24h)}</b></span><span><small>Volume</small><b className={a.volume_change_24h>=0?'up':'down'}>{pct(a.volume_change_24h)}</b></span><strong>{a.breakout_score}</strong></article>)}</div>
    {data&&<div className="cmc-footer"><FiShield/><p>{data.disclaimer}</p></div>}
   </div>}
  </aside>;
