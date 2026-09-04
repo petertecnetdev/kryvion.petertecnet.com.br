@@ -156,10 +156,10 @@ export default function LoginScreen({ onAuthenticated }) {
         <form className="login-card" onSubmit={submit}>
           <div className="login-card-head">
             <span className="login-lock"><FiLock /></span>
-            <div><small>CONTA PETER TECNET</small><h2>Acessar Kryvion</h2></div>
+            <div><small>CONTA GRATUITA · PETER TECNET</small><h2>Entrar ou começar grátis</h2></div>
           </div>
 
-          <p className="login-card-subtitle">Use a mesma conta do ecossistema Peter Tecnet.</p>
+          <p className="login-card-subtitle">Entre com sua conta existente ou continue com Google para criar sua conta gratuita.</p>
 
           {error && <div className="login-error" role="alert">{error}</div>}
 

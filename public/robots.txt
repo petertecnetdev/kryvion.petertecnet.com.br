@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://kryvion.petertecnet.com.br/sitemap.xml

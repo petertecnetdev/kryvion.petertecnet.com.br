@@ -7,6 +7,7 @@ import {fetchCurrentUser,getStoredUser,getToken,logout} from './services/auth.js
 import Brand,{KryvionMark} from './components/Brand.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import PeterAccountGateway from './components/PeterAccountGateway.jsx';
+import PublicSite from './components/PublicSite.jsx';
 import AdvancedMarketCharts from './components/AdvancedMarketCharts.jsx';
 import CandlestickTerminal from './components/CandlestickTerminal.jsx';
 import './styles.css';
@@ -463,8 +464,10 @@ function AuthRoot(){
    setAuthenticated(false);
  };
 
+ const publicPath=window.location.pathname;
+ if(publicPath==='/blog'||publicPath.startsWith('/blog/'))return <PublicSite/>;
  if(checking)return <div className="auth-splash"><div className="auth-splash-mark"><KryvionMark/></div><strong>KRYVION</strong><span>Sincronizando sua Conta Peter Tecnet…</span></div>;
- if(!authenticated)return <LoginScreen onAuthenticated={signedIn}/>;
+ if(!authenticated)return publicPath==='/entrar'?<LoginScreen onAuthenticated={signedIn}/>:<PublicSite/>;
  return <App user={user} onLogout={signOut}/>;
 }
 
