@@ -1,0 +1,13 @@
+.timestamp.live{color:#61f4cb}
+.timestamp.stale{color:#ffbd5b}
+.timestamp.offline{color:#ff5f8f}
+.market-data-banner{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;margin:-10px 0 18px;padding:12px 14px;border-radius:13px;background:rgba(10,9,14,.92);border:1px solid rgba(255,189,91,.2);color:#d9d2df}
+.market-data-banner>svg{font-size:18px;color:#ffbd5b}
+.market-data-banner b,.market-data-banner span{display:block}
+.market-data-banner b{font-size:10px}
+.market-data-banner span{margin-top:3px;color:#77717f;font-size:9px;line-height:1.45}
+.market-data-banner button{border:1px solid rgba(255,189,91,.22);border-radius:9px;background:rgba(255,189,91,.06);color:#ffcf7b;padding:7px 10px;font-size:9px;cursor:pointer}
+.market-data-banner.offline{border-color:rgba(255,95,143,.22)}
+.market-data-banner.offline>svg{color:#ff5f8f}
+.market-data-banner.offline button{border-color:rgba(255,95,143,.22);background:rgba(255,95,143,.06);color:#ff8faf}
+@media(max-width:820px){.market-data-banner{grid-template-columns:auto 1fr;margin-top:-8px}.market-data-banner button{grid-column:2;justify-self:start}}
