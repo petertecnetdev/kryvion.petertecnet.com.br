@@ -1,4 +1,5 @@
 import api, { APP_SLUG } from './api.js';
+import { flushTelemetry } from './telemetry.js';
 
 const TOKEN_KEYS = ['token', 'petertecnet_token', 'access_token', 'auth_token'];
 const USER_KEY = 'user';
@@ -26,6 +27,10 @@ function storeSession(payload) {
   localStorage.setItem('token', accessToken);
   localStorage.setItem('petertecnet_token', accessToken);
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+
+  // O evento de login foi enfileirado pelo interceptor da API. Faça o flush
+  // somente depois de armazenar o token para a API associá-lo ao usuário correto.
+  flushTelemetry();
 
   window.dispatchEvent(new Event('authChanged'));
   window.dispatchEvent(new CustomEvent('peter:auth-changed', { detail: { source: APP_SLUG } }));
@@ -61,6 +66,8 @@ export async function logout() {
   } catch {
     // A sessão local deve ser encerrada mesmo se o token já tiver expirado.
   } finally {
+    // Preserve a autoria do evento de logout antes de apagar a credencial local.
+    await flushTelemetry();
     TOKEN_KEYS.forEach((key) => localStorage.removeItem(key));
     localStorage.removeItem(USER_KEY);
     window.dispatchEvent(new Event('authChanged'));
