@@ -1,7 +1,6 @@
-import React,{useEffect,useMemo,useState} from 'react';
+import React,{lazy,Suspense,useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {LineChart,Line,ResponsiveContainer,AreaChart,Area,Tooltip,XAxis,YAxis,CartesianGrid} from 'recharts';
-import {FiActivity,FiBarChart2,FiBell,FiBriefcase,FiCompass,FiDollarSign,FiLogOut,FiMenu,FiPieChart,FiPlus,FiRefreshCw,FiSearch,FiShield,FiTrash2,FiTrendingUp,FiX} from 'react-icons/fi';
+import {FiActivity,FiBarChart2,FiBell,FiBriefcase,FiCompass,FiDollarSign,FiLogOut,FiMenu,FiPieChart,FiPlus,FiRefreshCw,FiShield,FiTrash2,FiTrendingUp,FiX} from 'react-icons/fi';
 import {marketApi} from './services/api.js';
 import {fetchCurrentUser,getStoredUser,getToken,logout} from './services/auth.js';
 import Brand,{KryvionMark} from './components/Brand.jsx';
@@ -10,9 +9,12 @@ import PeterAccountGateway from './components/PeterAccountGateway.jsx';
 import NotificationCenter from './components/NotificationCenter.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import PublicSite from './components/PublicSite.jsx';
-import AdvancedMarketCharts from './components/AdvancedMarketCharts.jsx';
-import CandlestickTerminal from './components/CandlestickTerminal.jsx';
+import GlobalSearch from './components/GlobalSearch.jsx';
+const AdvancedMarketCharts=lazy(()=>import('./components/AdvancedMarketCharts.jsx'));
+const CandlestickTerminal=lazy(()=>import('./components/CandlestickTerminal.jsx'));
+const StressScenarioChart=lazy(()=>import('./components/StressScenarioChart.jsx'));
 import './styles.css';
+import './global-search.css';
 
 const MARKET_CACHE_KEY='kryvion.market.overview.v1';
 const MARKET_POLL_MS=60_000;
@@ -40,8 +42,13 @@ const pct=(n)=>`${Number(n||0)>=0?'+':''}${Number(n||0).toFixed(2)}%`;
 const nav=[['overview','Visão geral',FiBarChart2],['radar','Radar',FiCompass],['portfolio','Portfólio',FiBriefcase],['signals','Sinais',FiActivity],['simulator','Simulador',FiTrendingUp],['alerts','Alertas',FiBell],['risk','Risco',FiShield]];
 
 function Spark({data,positive=true}){
- const values=Array.isArray(data)&&data.length?data:[1,2,3,2,4];
- return <div className="spark"><ResponsiveContainer width="100%" height={42}><LineChart data={values.map((v,i)=>({i,v}))}><Line dataKey="v" type="monotone" stroke={positive?'#61f4cb':'#ff5f8f'} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer></div>;
+ const values=(Array.isArray(data)&&data.length?data:[1,2,3,2,4]).map(Number).filter(Number.isFinite);
+ const safe=values.length>1?values:[0,0];
+ const min=Math.min(...safe);
+ const max=Math.max(...safe);
+ const spread=Math.max(1,max-min);
+ const points=safe.map((value,index)=>`${(index/(safe.length-1))*100},${38-((value-min)/spread)*34}`).join(' ');
+ return <div className="spark"><svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true"><polyline points={points} stroke={positive?'#61f4cb':'#ff5f8f'}/></svg></div>;
 }
 
 function ScoreRing({score}){
@@ -165,7 +172,7 @@ function App({user,onLogout}){
   <main>
    <header>
     <button className="menu-mobile" onClick={()=>setMobile(true)}><FiMenu/></button>
-    <div className="search"><FiSearch/><input placeholder="Buscar ativo, sinal ou posição..."/></div>
+    <GlobalSearch assets={assets} positions={positions} navigation={nav} onNavigate={(target)=>{setPage(target);setMobile(false);}}/>
     <div className="header-actions">
      <div className={`market-status ${regime.code||''}`}><span/> {regime.label}</div>
      <button onClick={load} className="icon-btn"><FiRefreshCw className={loading?'spin':''}/></button>
@@ -200,8 +207,8 @@ function App({user,onLogout}){
       <div className="metric-card"><span className="metric-icon"><FiActivity/></span><small>Opportunity Index</small><strong>{sentiment}/100</strong><em>{sentiment>70?'favorável':'seletivo'}</em></div>
      </div>
 
-     <CandlestickTerminal assets={assets}/>
-     <AdvancedMarketCharts assets={assets} regime={regime}/>
+     <Suspense fallback={<div className="chart-suspense" aria-label="Carregando gráficos de mercado"/>}><CandlestickTerminal assets={assets}/></Suspense>
+     <Suspense fallback={<div className="chart-suspense" aria-label="Carregando análise gráfica"/>}><AdvancedMarketCharts assets={assets} regime={regime}/></Suspense>
 
      <div className="section-grid">
       <div className="panel span-2">
@@ -321,8 +328,7 @@ function Portfolio({positions,total,assets,setPositions,flash}){
 }
 
 function Simulator({total,simMove,setSimMove,simValue}){
- const chart=Array.from({length:9},(_,index)=>{const move=-40+index*10;return {move:`${move}%`,value:Math.max(0,total*(1+move/100))};});
- return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>STRESS TEST</small><h3>Impacto na carteira</h3></div></div><div className="chart-big"><ResponsiveContainer width="100%" height={320}><AreaChart data={chart}><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b3dff" stopOpacity={.5}/><stop offset="100%" stopColor="#8b3dff" stopOpacity={0}/></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.06)" vertical={false}/><XAxis dataKey="move" stroke="#727a95"/><YAxis stroke="#727a95" tickFormatter={(value)=>`R$${Math.round(value/1000)}k`}/><Tooltip formatter={(value)=>fmtBRL(value)}/><Area dataKey="value" stroke="#aa63ff" fill="url(#fill)"/></AreaChart></ResponsiveContainer></div></div><div className="panel simulator-control"><small>CENÁRIO</small><h3>Choque de mercado</h3><input type="range" min="-50" max="50" step="1" value={simMove} onChange={(event)=>setSimMove(event.target.value)}/><strong className={simMove>=0?'up':'down'}>{simMove>0?'+':''}{simMove}%</strong><div className="projection"><span>Carteira hoje<b>{fmtBRL(total)}</b></span><span>Após cenário<b>{fmtBRL(simValue)}</b></span><span>Impacto<b className={simMove>=0?'up':'down'}>{fmtBRL(simValue-total)}</b></span></div><p>Simulação simplificada e não probabilística. O motor de cenários pode receber correlações por ativo via API.</p></div></div>;
+ return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>STRESS TEST</small><h3>Impacto na carteira</h3></div></div><Suspense fallback={<div className="chart-suspense" aria-label="Carregando simulação"/>}><StressScenarioChart total={total}/></Suspense></div><div className="panel simulator-control"><small>CENÁRIO</small><h3>Choque de mercado</h3><input type="range" min="-50" max="50" step="1" value={simMove} onChange={(event)=>setSimMove(event.target.value)}/><strong className={simMove>=0?'up':'down'}>{simMove>0?'+':''}{simMove}%</strong><div className="projection"><span>Carteira hoje<b>{fmtBRL(total)}</b></span><span>Após cenário<b>{fmtBRL(simValue)}</b></span><span>Impacto<b className={simMove>=0?'up':'down'}>{fmtBRL(simValue-total)}</b></span></div><p>Simulação simplificada e não probabilística. O motor de cenários pode receber correlações por ativo via API.</p></div></div>;
 }
 
 function Alerts({alerts,assets,setAlerts,flash}){
