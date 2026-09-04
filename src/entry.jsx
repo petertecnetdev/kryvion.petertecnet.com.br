@@ -9,6 +9,7 @@ import { API_BASE_URL, APP_SLUG } from './services/api.js';
 import { getToken } from './services/auth.js';
 import { startTelemetry } from './services/telemetry.js';
 import { mountMarketIntelligence } from './MarketIntelligenceOverlay.jsx';
+import { mountCoinMarketCapScanner } from './CoinMarketCapScannerOverlay.jsx';
 import { mountMarketDataProvenance } from './components/MarketDataProvenance.jsx';
 
 startTelemetry({
@@ -18,4 +19,5 @@ startTelemetry({
 });
 
 mountMarketIntelligence();
+mountCoinMarketCapScanner();
 mountMarketDataProvenance();
