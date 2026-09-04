@@ -86,6 +86,7 @@ function classifyRequest(config = {}) {
   if (path === `/v1/apps/${APP_SLUG}/config` && method === 'GET') return { type: 'runtime_config_loaded', label: 'Carregamento da configuração da Kryvion' };
 
   if (exact('/overview') && method === 'GET') return { type: 'market_overview_loaded', label: 'Carregamento da visão geral do mercado' };
+  if (exact('/scanner') && method === 'GET') return { type: 'breakout_radar_loaded', label: 'Carregamento do radar de possíveis altas' };
   if (/\/market\/assets\/[^/]+\/ohlcv$/.test(path) && method === 'GET') {
     const symbol = decodeURIComponent(path.split('/').at(-2) || 'ativo');
     return {
@@ -204,6 +205,7 @@ api.interceptors.response.use(
 
 export const marketApi = {
   overview: () => api.get(`/v1/apps/${APP_SLUG}/market/overview`),
+  scanner: (params = {}) => api.get(`/v1/apps/${APP_SLUG}/market/scanner`, { params }),
   ohlcv: (asset, params = {}) => api.get(`/v1/apps/${APP_SLUG}/market/assets/${encodeURIComponent(asset)}/ohlcv`, { params }),
   analyze: (data) => api.post(`/v1/apps/${APP_SLUG}/market/analyze`, data),
   portfolio: () => api.get(`/v1/apps/${APP_SLUG}/market/portfolio`),
