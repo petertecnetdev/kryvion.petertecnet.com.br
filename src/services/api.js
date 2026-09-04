@@ -8,6 +8,45 @@ const getAuthToken = () => ['token', 'petertecnet_token', 'access_token', 'auth_
   .map((key) => localStorage.getItem(key))
   .find(Boolean);
 
+const AUTH_TOKEN_KEYS = ['token', 'petertecnet_token', 'access_token', 'auth_token'];
+let refreshPromise = null;
+
+function storeAccessToken(token) {
+  if (!token) return;
+  localStorage.setItem('token', token);
+  localStorage.setItem('petertecnet_token', token);
+}
+
+function clearLocalSession() {
+  [...AUTH_TOKEN_KEYS, 'user'].forEach((key) => localStorage.removeItem(key));
+  window.dispatchEvent(new Event('authChanged'));
+}
+
+async function renewAccessToken() {
+  if (refreshPromise) return refreshPromise;
+
+  const token = getAuthToken();
+  if (!token) throw new Error('Sessão ausente.');
+
+  refreshPromise = axios.post(`${API_BASE_URL}/auth/refresh`, null, {
+    timeout: 12000,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      'X-Peter-App': APP_SLUG,
+    },
+  }).then(({ data }) => {
+    const accessToken = data?.access_token || data?.token?.access_token;
+    if (!accessToken) throw new Error('A API não retornou uma sessão renovada.');
+    storeAccessToken(accessToken);
+    return accessToken;
+  }).finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
 startTelemetry({
   apiBaseUrl: API_BASE_URL,
   appSlug: APP_SLUG,
@@ -65,6 +104,10 @@ function classifyRequest(config = {}) {
   if (exact('/alerts') && method === 'GET') return { type: 'alerts_viewed', label: 'Carregamento dos alertas' };
   if (exact('/alerts') && method === 'POST') return { type: 'alert_created', label: 'Criação de alerta de mercado' };
   if (starts('/alerts/') && method === 'DELETE') return { type: 'alert_deleted', label: 'Remoção de alerta de mercado', metadata: { alert_id: path.split('/').at(-1) } };
+  if (path === `/v1/apps/${APP_SLUG}/notifications` && method === 'GET') return { type: 'notifications_viewed', label: 'Carregamento da central de notificações' };
+  if (path === `/v1/apps/${APP_SLUG}/notifications/unread-count` && method === 'GET') return { type: 'notification_unread_count_loaded', label: 'Atualização do contador de notificações' };
+  if (path === `/v1/apps/${APP_SLUG}/notifications/read-all` && method === 'PATCH') return { type: 'notifications_marked_read', label: 'Marcação de todas as notificações como lidas' };
+  if (/\/notifications\/\d+\/read$/.test(path) && method === 'PATCH') return { type: 'notification_marked_read', label: 'Marcação de notificação como lida' };
 
   return {
     type: 'api_action',
@@ -122,9 +165,26 @@ api.interceptors.response.use(
       error?.code || error?.response?.data?.code || '',
     );
 
-    if (error?.response?.status === 401) {
+    if (error?.response?.status === 401 && error?.config && getAuthToken()) {
+      if (!error.config.__authRetry) {
+        try {
+          const accessToken = await renewAccessToken();
+          const retryConfig = {
+            ...error.config,
+            __authRetry: true,
+            headers: {
+              ...(error.config.headers || {}),
+              Authorization: `Bearer ${accessToken}`,
+            },
+          };
+          return api.request(retryConfig);
+        } catch {
+          // A renovação falhou; o fluxo abaixo invalida a sessão local.
+        }
+      }
+
       trackTelemetry('session_expired', {
-        label: 'Sessão expirada ou não autorizada',
+        label: 'Sessão expirada ou não renovável',
         target: cleanPath(error?.config?.url),
         metadata: {
           status: 401,
@@ -136,10 +196,7 @@ api.interceptors.response.use(
       // falha antes de limpar a sessão para não transformar a ocorrência em
       // atividade anônima no Admin Center.
       await flushTelemetry();
-
-      ['token', 'petertecnet_token', 'access_token', 'auth_token', 'user']
-        .forEach((key) => localStorage.removeItem(key));
-      window.dispatchEvent(new Event('authChanged'));
+      clearLocalSession();
     }
     return Promise.reject(error);
   },
@@ -158,6 +215,10 @@ export const marketApi = {
   alerts: () => api.get(`/v1/apps/${APP_SLUG}/market/alerts`),
   addAlert: (data) => api.post(`/v1/apps/${APP_SLUG}/market/alerts`, data),
   removeAlert: (id) => api.delete(`/v1/apps/${APP_SLUG}/market/alerts/${id}`),
+  notifications: (params = {}) => api.get(`/v1/apps/${APP_SLUG}/notifications`, { params }),
+  notificationUnreadCount: () => api.get(`/v1/apps/${APP_SLUG}/notifications/unread-count`),
+  markNotificationRead: (id) => api.patch(`/v1/apps/${APP_SLUG}/notifications/${id}/read`),
+  markAllNotificationsRead: () => api.patch(`/v1/apps/${APP_SLUG}/notifications/read-all`),
 };
 
 export default api;

@@ -7,6 +7,8 @@ import {fetchCurrentUser,getStoredUser,getToken,logout} from './services/auth.js
 import Brand,{KryvionMark} from './components/Brand.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import PeterAccountGateway from './components/PeterAccountGateway.jsx';
+import NotificationCenter from './components/NotificationCenter.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import PublicSite from './components/PublicSite.jsx';
 import AdvancedMarketCharts from './components/AdvancedMarketCharts.jsx';
 import CandlestickTerminal from './components/CandlestickTerminal.jsx';
@@ -167,7 +169,7 @@ function App({user,onLogout}){
     <div className="header-actions">
      <div className={`market-status ${regime.code||''}`}><span/> {regime.label}</div>
      <button onClick={load} className="icon-btn"><FiRefreshCw className={loading?'spin':''}/></button>
-     <button className="icon-btn"><FiBell/></button>
+     <NotificationCenter onNavigate={(target)=>{if(target==='/alerts'){setPage('alerts');return;}if(target.startsWith('/'))window.location.assign(target);}}/>
      <div className="account-chip">
       <div className="avatar">{`${user?.first_name?.[0]||'P'}${user?.last_name?.[0]||'T'}`.toUpperCase()}</div>
       <div className="account-copy"><b>{user?.first_name||user?.user_name||'Conta Peter'}</b><small>Kryvion</small></div>
@@ -471,4 +473,4 @@ function AuthRoot(){
  return <App user={user} onLogout={signOut}/>;
 }
 
-createRoot(document.getElementById('root')).render(<AuthRoot/>);
+createRoot(document.getElementById('root')).render(<ErrorBoundary><AuthRoot/></ErrorBoundary>);
