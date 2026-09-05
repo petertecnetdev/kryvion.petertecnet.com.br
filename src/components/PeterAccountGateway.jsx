@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { API_BASE_URL, APP_SLUG } from '../services/api.js';
+import { installPeterWhatsappFallback } from '../utils/peterWhatsappFallback.js';
 
 const SDK_VERSION = '3.0.0';
 const TELEMETRY_VERSION = '3.1.0';
@@ -106,6 +107,7 @@ function dockLauncherInNavbar(launcher) {
 export default function PeterAccountGateway() {
   const hostRef = useRef(null);
   useEffect(() => {
+    installPeterWhatsappFallback();
     let active = true;
     let launcher = null;
     let cleanupDock = null;
