@@ -3,6 +3,8 @@ import { flushTelemetry } from './telemetry.js';
 
 const TOKEN_KEYS = ['token', 'petertecnet_token', 'access_token', 'auth_token'];
 const USER_KEY = 'user';
+let passwordLoginPromise = null;
+let googleLoginPromise = null;
 
 export function getToken() {
   return TOKEN_KEYS.map((key) => localStorage.getItem(key)).find(Boolean) || null;
@@ -38,14 +40,28 @@ function storeSession(payload) {
   return { accessToken, user };
 }
 
-export async function login(username, password) {
-  const { data } = await api.post('/auth/login', { username, password });
-  return storeSession(data);
+export function login(username, password) {
+  if (passwordLoginPromise) return passwordLoginPromise;
+
+  passwordLoginPromise = api.post('/auth/login', { username, password })
+    .then(({ data }) => storeSession(data))
+    .finally(() => {
+      passwordLoginPromise = null;
+    });
+
+  return passwordLoginPromise;
 }
 
-export async function loginWithGoogle(tokenId) {
-  const { data } = await api.post('/auth/google', { token_id: tokenId });
-  return storeSession(data);
+export function loginWithGoogle(tokenId) {
+  if (googleLoginPromise) return googleLoginPromise;
+
+  googleLoginPromise = api.post('/auth/google', { token_id: tokenId })
+    .then(({ data }) => storeSession(data))
+    .finally(() => {
+      googleLoginPromise = null;
+    });
+
+  return googleLoginPromise;
 }
 
 export async function fetchCurrentUser() {
