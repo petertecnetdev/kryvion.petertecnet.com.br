@@ -16,6 +16,7 @@ import { mountCoinMarketCapScanner } from './CoinMarketCapScannerOverlay.jsx';
 import { mountMarketDataProvenance } from './components/MarketDataProvenance.jsx';
 import KryvionMenuExtras from './components/KryvionMenuExtras.jsx';
 import MarketReportShareButton from './components/MarketReportShareButton.jsx';
+import NotificationEmailPreference from './components/NotificationEmailPreference.jsx';
 
 startTelemetry({
   apiBaseUrl: API_BASE_URL,
@@ -36,3 +37,8 @@ const marketReportShareHost=document.createElement('div');
 marketReportShareHost.id='kryvion-market-report-share-root';
 document.body.appendChild(marketReportShareHost);
 createRoot(marketReportShareHost).render(<MarketReportShareButton/>);
+
+const notificationEmailPreferenceHost=document.createElement('div');
+notificationEmailPreferenceHost.id='kryvion-notification-email-preference-root';
+document.body.appendChild(notificationEmailPreferenceHost);
+createRoot(notificationEmailPreferenceHost).render(<NotificationEmailPreference/>);
