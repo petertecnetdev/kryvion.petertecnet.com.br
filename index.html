@@ -50,18 +50,51 @@
     <div id="root"></div>
     <script type="module" src="/src/entry.jsx"></script>
     <script>
-      // Defensive cleanup for malformed literal newline markers injected into the
-      // document by generated/deployed HTML. Real whitespace text nodes are kept.
-      const removeStrayNewlineMarkers = () => {
-        for (const node of [...document.body.childNodes]) {
-          if (node.nodeType !== Node.TEXT_NODE) continue;
-          const value = node.textContent.trim();
-          if (value === '\\n' || value === '/n') node.remove();
+      // Remove marcadores de quebra de linha renderizados como texto (ex.: "\\n")
+      // independentemente de terem sido inseridos no body, dentro do root React ou
+      // posteriormente por scripts compartilhados do ecossistema.
+      const isStrayNewlineMarker = (value) => {
+        const normalized = String(value ?? '').trim();
+        return normalized === '\\n' || normalized === '/n';
+      };
+
+      const removeStrayNewlineMarkers = (root = document.body) => {
+        if (!root) return;
+
+        if (root.nodeType === Node.TEXT_NODE) {
+          if (isStrayNewlineMarker(root.textContent)) root.remove();
+          return;
         }
+
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const removable = [];
+        let node = walker.nextNode();
+
+        while (node) {
+          if (isStrayNewlineMarker(node.textContent)) removable.push(node);
+          node = walker.nextNode();
+        }
+
+        removable.forEach((textNode) => textNode.remove());
       };
 
       removeStrayNewlineMarkers();
-      window.addEventListener('DOMContentLoaded', removeStrayNewlineMarkers, { once: true });
+
+      const strayMarkerObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const addedNode of mutation.addedNodes) {
+            removeStrayNewlineMarkers(addedNode);
+          }
+        }
+      });
+
+      strayMarkerObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+
+      window.addEventListener('DOMContentLoaded', () => removeStrayNewlineMarkers(), { once: true });
+      window.addEventListener('load', () => removeStrayNewlineMarkers(), { once: true });
 
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', async () => {
