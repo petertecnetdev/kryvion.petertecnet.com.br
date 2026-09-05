@@ -82,7 +82,7 @@ function MarketIntelligenceOverlay(){
  const [fetchedAt,setFetchedAt]=useState(null);
  const [error,setError]=useState('');
  const [loading,setLoading]=useState(false);
- const [open,setOpen]=useState(()=>typeof window!=='undefined'&&window.innerWidth>=1180);
+ const [open,setOpen]=useState(false);
  const [details,setDetails]=useState(false);
 
  const load=useCallback(async({silent=false}={})=>{
