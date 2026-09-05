@@ -1,15 +1,15 @@
-import React,{lazy,Suspense,useEffect,useMemo,useState} from 'react';
+import React,{lazy,Suspense,useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {FiActivity,FiBarChart2,FiBell,FiBriefcase,FiCompass,FiDollarSign,FiLogOut,FiMenu,FiPieChart,FiPlus,FiRefreshCw,FiShield,FiTrash2,FiTrendingUp,FiX} from 'react-icons/fi';
 import {marketApi} from './services/api.js';
 import {fetchCurrentUser,getStoredUser,getToken,logout} from './services/auth.js';
 import Brand,{KryvionMark} from './components/Brand.jsx';
-import LoginScreen from './components/LoginScreen.jsx';
-import PeterAccountGateway from './components/PeterAccountGateway.jsx';
-import NotificationCenter from './components/NotificationCenter.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
-import PublicSite from './components/PublicSite.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
+const LoginScreen=lazy(()=>import('./components/LoginScreen.jsx'));
+const PeterAccountGateway=lazy(()=>import('./components/PeterAccountGateway.jsx'));
+const NotificationCenter=lazy(()=>import('./components/NotificationCenter.jsx'));
+const PublicSite=lazy(()=>import('./components/PublicSite.jsx'));
 const AdvancedMarketCharts=lazy(()=>import('./components/AdvancedMarketCharts.jsx'));
 const CandlestickTerminal=lazy(()=>import('./components/CandlestickTerminal.jsx'));
 const StressScenarioChart=lazy(()=>import('./components/StressScenarioChart.jsx'));
@@ -106,51 +106,78 @@ function App({user,onLogout}){
  const [alerts,setAlerts]=useState([]);
  const [toast,setToast]=useState('');
  const [simMove,setSimMove]=useState(-15);
+ const loadPromiseRef=useRef(null);
+ const toastTimerRef=useRef(null);
 
  const flash=(message)=>{
    setToast(message);
-   window.setTimeout(()=>setToast(''),2600);
+   if(toastTimerRef.current)window.clearTimeout(toastTimerRef.current);
+   toastTimerRef.current=window.setTimeout(()=>{
+     setToast('');
+     toastTimerRef.current=null;
+   },2600);
  };
+
+ useEffect(()=>()=>{
+   if(toastTimerRef.current)window.clearTimeout(toastTimerRef.current);
+ },[]);
 
  const load=async({background=false}={})=>{
    if(!background)setLoading(true);
-   try{
-     const response=await marketApi.overview();
-     const data=response.data?.data||response.data;
-     const nextAssets=Array.isArray(data?.assets)?data.assets:[];
-     if(!nextAssets.length)throw new Error('A API não retornou ativos de mercado.');
 
-     const nextRegime=data?.regime||DEFAULT_REGIME;
-     const candidateUpdated=data?.fetched_at?new Date(data.fetched_at):new Date();
-     const nextUpdated=Number.isNaN(candidateUpdated.getTime())?new Date():candidateUpdated;
-
-     setAssets(nextAssets);
-     setRegime(nextRegime);
-     setUpdated(nextUpdated);
-     setMarketState('live');
-     setMarketError('');
-     writeMarketCache({
-       assets:nextAssets,
-       regime:nextRegime,
-       updatedAt:nextUpdated.toISOString(),
-       provider:data?.provider||null,
-       currency:data?.currency||'BRL',
-     });
-   }catch(error){
-     const cached=readMarketCache();
-     if(cached?.assets?.length){
-       setAssets(cached.assets);
-       setRegime(cached.regime||DEFAULT_REGIME);
-       setUpdated(cached.updatedAt?new Date(cached.updatedAt):null);
-       setMarketState('stale');
-     }else{
-       setAssets([]);
-       setRegime(DEFAULT_REGIME);
-       setUpdated(null);
-       setMarketState('offline');
+   if(loadPromiseRef.current){
+     try{
+       return await loadPromiseRef.current;
+     }finally{
+       if(!background)setLoading(false);
      }
-     setMarketError(error?.response?.data?.message||error?.message||'Não foi possível atualizar os dados de mercado.');
+   }
+
+   const request=(async()=>{
+     try{
+       const response=await marketApi.overview();
+       const data=response.data?.data||response.data;
+       const nextAssets=Array.isArray(data?.assets)?data.assets:[];
+       if(!nextAssets.length)throw new Error('A API não retornou ativos de mercado.');
+
+       const nextRegime=data?.regime||DEFAULT_REGIME;
+       const candidateUpdated=data?.fetched_at?new Date(data.fetched_at):new Date();
+       const nextUpdated=Number.isNaN(candidateUpdated.getTime())?new Date():candidateUpdated;
+
+       setAssets(nextAssets);
+       setRegime(nextRegime);
+       setUpdated(nextUpdated);
+       setMarketState('live');
+       setMarketError('');
+       writeMarketCache({
+         assets:nextAssets,
+         regime:nextRegime,
+         updatedAt:nextUpdated.toISOString(),
+         provider:data?.provider||null,
+         currency:data?.currency||'BRL',
+       });
+     }catch(error){
+       const cached=readMarketCache();
+       if(cached?.assets?.length){
+         setAssets(cached.assets);
+         setRegime(cached.regime||DEFAULT_REGIME);
+         setUpdated(cached.updatedAt?new Date(cached.updatedAt):null);
+         setMarketState('stale');
+       }else{
+         setAssets([]);
+         setRegime(DEFAULT_REGIME);
+         setUpdated(null);
+         setMarketState('offline');
+       }
+       setMarketError(error?.response?.data?.message||error?.message||'Não foi possível atualizar os dados de mercado.');
+     }
+   })();
+
+   loadPromiseRef.current=request;
+   try{
+     return await request;
    }finally{
+     if(loadPromiseRef.current===request)loadPromiseRef.current=null;
      if(!background)setLoading(false);
    }
  };
@@ -194,9 +221,9 @@ function App({user,onLogout}){
 
  return <div className="app-shell">
   {marketReport&&<MarketOpportunityReport symbol={marketReport} onClose={()=>{setMarketReport(null);const url=new URL(window.location.href);url.searchParams.delete('marketReport');window.history.replaceState({},'',url);}}/>}
-  <aside className={`sidebar ${mobile?'open':''}`}>
-   <div className="side-top"><Brand/><button className="close-mobile" onClick={()=>setMobile(false)}><FiX/></button></div>
-   <nav>{nav.map(([id,label,Icon])=><button key={id} onClick={()=>{setPage(id);setMobile(false)}} className={page===id?'active':''}><Icon/><span>{label}</span></button>)}</nav>
+  <aside className={`sidebar ${mobile?'open':''}`} aria-label="Navegação principal">
+   <div className="side-top"><Brand/><button type="button" className="close-mobile" onClick={()=>setMobile(false)} aria-label="Fechar menu"><FiX/></button></div>
+   <nav aria-label="Seções da Kryvion">{nav.map(([id,label,Icon])=><button type="button" key={id} onClick={()=>{setPage(id);setMobile(false)}} className={page===id?'active':''} aria-current={page===id?'page':undefined}><Icon/><span>{label}</span></button>)}</nav>
    <div className="side-bottom">
     <div className="risk-mini"><FiShield/><div><small>Risk Guardian</small><strong>Monitor de risco</strong></div><span className="pulse-dot"/></div>
     <a href="https://petertecnet.com.br" rel="noreferrer">Ecossistema Peter Tecnet</a>
@@ -205,16 +232,16 @@ function App({user,onLogout}){
 
   <main>
    <header>
-    <button className="menu-mobile" onClick={()=>setMobile(true)}><FiMenu/></button>
+    <button type="button" className="menu-mobile" onClick={()=>setMobile(true)} aria-label="Abrir menu" aria-expanded={mobile}><FiMenu/></button>
     <GlobalSearch assets={assets} positions={positions} navigation={nav} onNavigate={(target)=>{setPage(target);setMobile(false);}}/>
     <div className="header-actions">
      <div className={`market-status ${regime.code||''}`}><span/> {regime.label}</div>
-     <button onClick={load} className="icon-btn"><FiRefreshCw className={loading?'spin':''}/></button>
-     <NotificationCenter onNavigate={(target)=>{if(target==='/alerts'){setPage('alerts');return;}if(target.startsWith('/'))window.location.assign(target);}}/>
+     <button type="button" onClick={()=>load()} className="icon-btn" aria-label="Atualizar dados de mercado" aria-busy={loading}><FiRefreshCw className={loading?'spin':''}/></button>
+     <Suspense fallback={<button type="button" className="icon-btn" aria-label="Carregando notificações" disabled><FiBell/></button>}><NotificationCenter onNavigate={(target)=>{if(target==='/alerts'){setPage('alerts');return;}if(target.startsWith('/'))window.location.assign(target);}}/></Suspense>
      <div className="account-chip">
       <div className="avatar">{`${user?.first_name?.[0]||'P'}${user?.last_name?.[0]||'T'}`.toUpperCase()}</div>
       <div className="account-copy"><b>{user?.first_name||user?.user_name||'Conta Peter'}</b><small>Kryvion</small></div>
-      <button className="logout-btn" onClick={onLogout} title="Sair"><FiLogOut/></button>
+      <button type="button" className="logout-btn" onClick={onLogout} title="Sair" aria-label="Sair da Kryvion"><FiLogOut/></button>
      </div>
     </div>
    </header>
@@ -288,8 +315,8 @@ function App({user,onLogout}){
    </section>
   </main>
 
-  <PeterAccountGateway/>
-  {toast&&<div className="toast">{toast}</div>}
+  <Suspense fallback={null}><PeterAccountGateway/></Suspense>
+  {toast&&<div className="toast" role="status" aria-live="polite">{toast}</div>}
  </div>;
 }
 
@@ -450,6 +477,10 @@ function Risk({flash}){
  return <div className="section-grid"><div className="panel span-2"><div className="panel-head"><div><small>RISK GUARDIAN</small><h3>Política pessoal de risco</h3></div><span className={`pill ${loading?'wait':'buy'}`}>{loading?'carregando':'sincronizado'}</span></div><div className="risk-form"><label>Perfil<select value={level} onChange={(event)=>setLevel(event.target.value)} disabled={loading}><option value="conservador">conservador</option><option value="moderado">moderado</option><option value="agressivo">agressivo</option></select></label><label>Exposição máxima por ativo <b>{maxAsset}%</b><input type="range" min="5" max="100" value={maxAsset} onChange={(event)=>setMaxAsset(event.target.value)} disabled={loading}/></label><label>Perda máxima tolerada no cenário <b>{maxLoss}%</b><input type="range" min="1" max="90" value={maxLoss} onChange={(event)=>setMaxLoss(event.target.value)} disabled={loading}/></label><label>Reserva mínima de liquidez <b>{minReserve}%</b><input type="range" min="0" max="95" value={minReserve} onChange={(event)=>setMinReserve(event.target.value)} disabled={loading}/></label><button className="primary" onClick={save} disabled={saving||loading}><FiShield/> {saving?'Salvando…':'Salvar política'}</button></div></div><div className="panel"><small>REGRAS DE PROTEÇÃO</small><h3>Guardrails aplicados</h3><ul className="guard-list"><li><FiShield/> Preservar a reserva mínima configurada</li><li><FiShield/> Limitar exposição por ativo</li><li><FiShield/> Exibir cenários de perda antes de decisões</li><li><FiShield/> Exigir evidências e confiança nos sinais</li><li><FiShield/> Não executar ordens automaticamente</li></ul></div></div>;
 }
 
+function AuthSplash(){
+ return <div className="auth-splash"><div className="auth-splash-mark"><KryvionMark/></div><strong>KRYVION</strong><span>Sincronizando sua Conta Peter Tecnet…</span></div>;
+}
+
 function AuthRoot(){
  const [checking,setChecking]=useState(Boolean(getToken()));
  const [user,setUser]=useState(getStoredUser());
@@ -507,10 +538,10 @@ function AuthRoot(){
  };
 
  const publicPath=window.location.pathname;
- if(publicPath==='/blog'||publicPath.startsWith('/blog/'))return <PublicSite/>;
- if(checking)return <div className="auth-splash"><div className="auth-splash-mark"><KryvionMark/></div><strong>KRYVION</strong><span>Sincronizando sua Conta Peter Tecnet…</span></div>;
+ if(publicPath==='/blog'||publicPath.startsWith('/blog/'))return <Suspense fallback={<AuthSplash/>}><PublicSite/></Suspense>;
+ if(checking)return <AuthSplash/>;
  const requiresReportAuth=Boolean(new URLSearchParams(window.location.search).get('marketReport'));
- if(!authenticated)return (publicPath==='/entrar'||requiresReportAuth)?<LoginScreen onAuthenticated={signedIn}/>:<PublicSite/>;
+ if(!authenticated)return <Suspense fallback={<AuthSplash/>}>{(publicPath==='/entrar'||requiresReportAuth)?<LoginScreen onAuthenticated={signedIn}/>:<PublicSite/>}</Suspense>;
  return <App user={user} onLogout={signOut}/>;
 }
 

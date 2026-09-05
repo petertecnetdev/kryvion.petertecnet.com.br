@@ -44,10 +44,10 @@ export default function GlobalSearch({assets,positions,navigation,onNavigate}){
  };
 
  return <div className={`global-search ${open?'open':''}`} ref={rootRef}>
-  <button type="button" className="mobile-search-trigger" onClick={()=>{setOpen(true);window.setTimeout(()=>inputRef.current?.focus(),0);}} aria-label="Abrir busca"><FiSearch/></button>
-  <div className={`search ${open?'active':''}`}><FiSearch/><input ref={inputRef} value={query} onChange={(event)=>{setQuery(event.target.value);setOpen(true);}} onFocus={()=>setOpen(true)} onKeyDown={onKeyDown} placeholder="Buscar ativo, sinal ou posição..." aria-label="Buscar na Kryvion" aria-expanded={open&&Boolean(query)} aria-controls="kryvion-search-results"/><kbd>/</kbd></div>
+  <button type="button" className="mobile-search-trigger" onClick={()=>{setOpen(true);window.setTimeout(()=>inputRef.current?.focus(),0);}} aria-label="Abrir busca" aria-expanded={open}><FiSearch/></button>
+  <div className={`search ${open?'active':''}`}><FiSearch/><input ref={inputRef} value={query} onChange={(event)=>{setQuery(event.target.value);setOpen(true);}} onFocus={()=>setOpen(true)} onKeyDown={onKeyDown} placeholder="Buscar ativo, sinal ou posição..." aria-label="Buscar na Kryvion" role="combobox" aria-autocomplete="list" aria-expanded={open&&Boolean(query)} aria-controls="kryvion-search-results" aria-activedescendant={open&&results.length?`kryvion-search-option-${activeIndex}`:undefined}/><kbd>/</kbd></div>
   {open&&query&&<div className="search-results" id="kryvion-search-results" role="listbox" aria-label="Resultados da busca">
-   {results.length?results.map((result,index)=><button type="button" role="option" aria-selected={index===activeIndex} className={index===activeIndex?'active':''} key={result.key} onMouseEnter={()=>setActiveIndex(index)} onClick={()=>activate(result)}><span className="search-result-icon"><ResultIcon type={result.icon}/></span><span><small>{result.kind}</small><b>{result.label}</b><em>{result.description}</em></span></button>):<div className="search-empty"><FiSearch/><b>Nenhum resultado</b><span>Tente pelo nome, símbolo ou seção.</span></div>}
+   {results.length?results.map((result,index)=><button id={`kryvion-search-option-${index}`} type="button" role="option" aria-selected={index===activeIndex} className={index===activeIndex?'active':''} key={result.key} onMouseEnter={()=>setActiveIndex(index)} onClick={()=>activate(result)}><span className="search-result-icon"><ResultIcon type={result.icon}/></span><span><small>{result.kind}</small><b>{result.label}</b><em>{result.description}</em></span></button>):<div className="search-empty"><FiSearch/><b>Nenhum resultado</b><span>Tente pelo nome, símbolo ou seção.</span></div>}
   </div>}
  </div>;
 }
