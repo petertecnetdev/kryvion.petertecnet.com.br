@@ -3,10 +3,13 @@ import { API_BASE_URL, APP_SLUG } from '../services/api.js';
 
 const SDK_VERSION = '3.0.0';
 const TELEMETRY_VERSION = '3.1.0';
+const SUBSCRIPTION_VERSION = '1.0.0';
 const SDK_URL = `https://petertecnet.com.br/ecosystem/peter-ecosystem-v3.js?v=${SDK_VERSION}`;
 const TELEMETRY_URL = `https://petertecnet.com.br/ecosystem/peter-telemetry-v3.js?v=${TELEMETRY_VERSION}`;
+const SUBSCRIPTION_URL = `https://petertecnet.com.br/ecosystem/peter-subscriptions-v1.js?v=${SUBSCRIPTION_VERSION}`;
 let sdkPromise;
 let telemetryPromise;
+let subscriptionPromise;
 
 function loadTelemetry() {
   if (window.PeterTecnetTelemetry?.version === TELEMETRY_VERSION) {
@@ -81,6 +84,34 @@ function loadSdk() {
   return sdkPromise;
 }
 
+function loadSubscriptions() {
+  if (window.PeterTecnetSubscriptions?.version === SUBSCRIPTION_VERSION && customElements.get('peter-subscription-gate')) return Promise.resolve();
+  if (subscriptionPromise) return subscriptionPromise;
+
+  subscriptionPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-peter-subscription-sdk]');
+    const script = existing || document.createElement('script');
+    const done = () => customElements.get('peter-subscription-gate')
+      ? resolve()
+      : reject(new Error('SDK de assinaturas não iniciou.'));
+
+    script.addEventListener('load', done, { once: true });
+    script.addEventListener('error', () => reject(new Error('Falha ao carregar as assinaturas Peter Tecnet.')), { once: true });
+
+    if (!existing) {
+      script.src = SUBSCRIPTION_URL;
+      script.async = true;
+      script.dataset.peterSubscriptionSdk = SUBSCRIPTION_VERSION;
+      document.head.appendChild(script);
+    }
+  }).catch((error) => {
+    subscriptionPromise = undefined;
+    throw error;
+  });
+
+  return subscriptionPromise;
+}
+
 export default function PeterAccountGateway() {
   const hostRef = useRef(null);
 
@@ -89,13 +120,16 @@ export default function PeterAccountGateway() {
 
     loadTelemetry()
       .catch((error) => console.error('[Kryvion Telemetry]', error))
-      .finally(() => loadSdk().then(() => {
+      .finally(() => Promise.all([loadSdk(), loadSubscriptions()]).then(() => {
         if (!active || !hostRef.current) return;
         const launcher = document.createElement('peter-ecosystem-launcher');
         launcher.setAttribute('api-base', API_BASE_URL);
         launcher.setAttribute('app-slug', APP_SLUG);
         launcher.setAttribute('sdk-version', SDK_VERSION);
-        hostRef.current.replaceChildren(launcher);
+        const subscriptionGate = document.createElement('peter-subscription-gate');
+        subscriptionGate.setAttribute('api-base', API_BASE_URL);
+        subscriptionGate.setAttribute('app-slug', APP_SLUG);
+        hostRef.current.replaceChildren(launcher, subscriptionGate);
       }).catch((error) => console.error('[Kryvion Ecosystem]', error)));
 
     return () => {
