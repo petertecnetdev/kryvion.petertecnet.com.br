@@ -9,6 +9,13 @@ function messageOf(error, fallback) {
   return error?.response?.data?.error || error?.response?.data?.message || error?.message || fallback;
 }
 
+function retryAfterOf(error) {
+  const bodyValue = Number(error?.response?.data?.retry_after);
+  const headerValue = Number(error?.response?.headers?.['retry-after']);
+  const candidate = Number.isFinite(bodyValue) && bodyValue > 0 ? bodyValue : headerValue;
+  return Math.max(1, Math.min(300, Number.isFinite(candidate) && candidate > 0 ? Math.ceil(candidate) : 60));
+}
+
 function loadGoogleSdk() {
   if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
   return new Promise((resolve, reject) => {
@@ -38,6 +45,7 @@ export default function LoginScreen({ onAuthenticated }) {
   const googleHost = useRef(null);
   const mounted = useRef(true);
   const busyRef = useRef(false);
+  const rateLimitUntilRef = useRef(0);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -45,15 +53,42 @@ export default function LoginScreen({ onAuthenticated }) {
   const [googleReady, setGoogleReady] = useState(false);
   const [googleError, setGoogleError] = useState('');
   const [error, setError] = useState('');
+  const [cooldown, setCooldown] = useState(0);
 
-  const canSubmit = useMemo(() => username.trim() && password && !loading, [username, password, loading]);
+  const rateLimited = cooldown > 0;
+  const canSubmit = useMemo(
+    () => username.trim() && password && !loading && !rateLimited,
+    [username, password, loading, rateLimited],
+  );
+
+  function handleRequestError(requestError, fallback) {
+    if (requestError?.response?.status === 429) {
+      const seconds = retryAfterOf(requestError);
+      rateLimitUntilRef.current = Date.now() + (seconds * 1000);
+      setCooldown(seconds);
+      setError(`Aguarde ${seconds}s antes de tentar novamente. A página vai liberar o acesso automaticamente.`);
+      return;
+    }
+
+    setError(messageOf(requestError, fallback));
+  }
+
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+
+    const timer = window.setTimeout(() => {
+      setCooldown((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
 
   useEffect(() => {
     mounted.current = true;
     let active = true;
 
     async function completeGoogle(credential) {
-      if (!credential || busyRef.current) return;
+      if (!credential || busyRef.current || Date.now() < rateLimitUntilRef.current) return;
       busyRef.current = true;
       setLoading(true);
       setError('');
@@ -61,7 +96,7 @@ export default function LoginScreen({ onAuthenticated }) {
         const session = await loginWithGoogle(credential);
         if (active) onAuthenticated(session.user);
       } catch (requestError) {
-        if (active) setError(messageOf(requestError, 'Não foi possível entrar com o Google.'));
+        if (active) handleRequestError(requestError, 'Não foi possível entrar com o Google.');
       } finally {
         busyRef.current = false;
         if (active) setLoading(false);
@@ -109,7 +144,7 @@ export default function LoginScreen({ onAuthenticated }) {
 
   async function submit(event) {
     event.preventDefault();
-    if (!canSubmit || busyRef.current) return;
+    if (!canSubmit || busyRef.current || Date.now() < rateLimitUntilRef.current) return;
 
     busyRef.current = true;
     setLoading(true);
@@ -118,7 +153,7 @@ export default function LoginScreen({ onAuthenticated }) {
       const session = await login(username.trim(), password);
       if (mounted.current) onAuthenticated(session.user);
     } catch (requestError) {
-      if (mounted.current) setError(messageOf(requestError, 'Não foi possível entrar.'));
+      if (mounted.current) handleRequestError(requestError, 'Não foi possível entrar.');
     } finally {
       busyRef.current = false;
       if (mounted.current) setLoading(false);
@@ -183,14 +218,16 @@ export default function LoginScreen({ onAuthenticated }) {
           </label>
 
           <button className="login-submit" type="submit" disabled={!canSubmit}>
-            <span>{loading ? 'Autenticando...' : 'Entrar na Kryvion'}</span><FiArrowRight />
+            <span>{loading ? 'Autenticando...' : rateLimited ? `Tente novamente em ${cooldown}s` : 'Entrar na Kryvion'}</span><FiArrowRight />
           </button>
 
           <div className="login-divider"><span>ou</span></div>
 
-          <div className={`google-shell ${googleReady ? 'is-ready' : ''}`}>
+          <div className={`google-shell ${googleReady ? 'is-ready' : ''}`} aria-disabled={rateLimited}>
             <div ref={googleHost} className="google-host" />
-            {!googleReady && !googleError && <div className="google-loading">Preparando Google…</div>}
+            {rateLimited
+              ? <div className="google-loading">Aguarde {cooldown}s…</div>
+              : !googleReady && !googleError && <div className="google-loading">Preparando Google…</div>}
           </div>
           {googleError && <p className="google-note">{googleError}</p>}
 
