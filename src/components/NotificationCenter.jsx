@@ -1,9 +1,76 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FiBell, FiCheck, FiCheckCircle, FiLoader, FiX } from 'react-icons/fi';
+import { FiBell, FiCheck, FiCheckCircle, FiLoader, FiVolume2, FiX } from 'react-icons/fi';
 import { marketApi } from '../services/api.js';
 import { connectNotificationRealtime } from '../services/realtime.js';
 
 const POLL_MS = 60_000;
+
+function playNotificationSound() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, context.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(660, context.currentTime + 0.18);
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.28);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.3);
+    oscillator.addEventListener('ended', () => context.close().catch(() => {}), { once: true });
+  } catch {
+    // O navegador pode bloquear áudio até ocorrer uma interação do usuário.
+  }
+}
+
+function NotificationPermissionGate() {
+  const [permission, setPermission] = useState(() => window.Notification?.permission || 'unsupported');
+  const [requesting, setRequesting] = useState(false);
+
+  useEffect(() => {
+    if (!('Notification' in window)) return undefined;
+    const sync = () => setPermission(window.Notification.permission);
+    window.addEventListener('focus', sync);
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      window.removeEventListener('focus', sync);
+      document.removeEventListener('visibilitychange', sync);
+    };
+  }, []);
+
+  if (permission === 'granted' || permission === 'unsupported') return null;
+
+  const requestPermission = async () => {
+    if (!('Notification' in window)) return;
+    setRequesting(true);
+    try {
+      const result = await window.Notification.requestPermission();
+      setPermission(result);
+      if (result === 'granted') playNotificationSound();
+    } finally {
+      setRequesting(false);
+    }
+  };
+
+  return <div className="notification-permission-gate" role="dialog" aria-modal="true" aria-labelledby="notification-required-title">
+    <div className="notification-permission-card">
+      <span className="notification-permission-icon"><FiBell /></span>
+      <small>KRYVION · ALERTAS EM TEMPO REAL</small>
+      <h2 id="notification-required-title">Ative as notificações para continuar</h2>
+      <p>A Kryvion usa notificações para avisar imediatamente sobre movimentos relevantes do mercado, sinais e mudanças importantes no radar.</p>
+      {permission === 'denied' && <p className="notification-permission-denied">As notificações estão bloqueadas neste navegador. Abra as permissões do site, altere “Notificações” para “Permitir” e volte para esta tela.</p>}
+      <button type="button" onClick={requestPermission} disabled={requesting || permission === 'denied'}>
+        <FiVolume2 /> {requesting ? 'Solicitando permissão…' : permission === 'denied' ? 'Permissão bloqueada no navegador' : 'Ativar notificações e som'}
+      </button>
+      {permission === 'denied' && <button type="button" className="notification-permission-recheck" onClick={() => setPermission(window.Notification.permission)}>Já alterei a permissão</button>}
+    </div>
+  </div>;
+}
 
 function normalizeList(payload) {
   const paginator = payload?.notifications;
@@ -70,11 +137,13 @@ export default function NotificationCenter({ onNavigate }) {
   useEffect(() => {
     if (open) loadNotifications();
   }, [open, loadNotifications]);
+
   useEffect(() => {
     let disconnect = () => {};
     let active = true;
     connectNotificationRealtime((notification) => {
       if (!active || !notification?.id) return;
+      playNotificationSound();
       setUnread((current) => current + (notification.read_at ? 0 : 1));
       setItems((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 20));
       setLiveNotice(notification);
@@ -85,7 +154,6 @@ export default function NotificationCenter({ onNavigate }) {
     }).then((cleanup) => { if (active) disconnect = cleanup; else cleanup?.(); });
     return () => { active = false; disconnect(); };
   }, []);
-
 
   useEffect(() => {
     if (!open) return undefined;
@@ -135,50 +203,53 @@ export default function NotificationCenter({ onNavigate }) {
     }
   };
 
-  return <div className="notification-center" ref={shellRef}>
-    {liveNotice && <button type="button" className="notification-live-toast" onClick={() => { setOpen(true); setLiveNotice(null); }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
-    <button
-      type="button"
-      className={`icon-btn notification-trigger ${open ? 'active' : ''}`}
-      onClick={() => setOpen((value) => !value)}
-      aria-label={unread ? `${unread} notificações não lidas` : 'Notificações'}
-      aria-expanded={open}
-      aria-haspopup="dialog"
-    >
-      <FiBell />
-      {unread > 0 && <span className="notification-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
-    </button>
+  return <>
+    <NotificationPermissionGate />
+    <div className="notification-center" ref={shellRef}>
+      {liveNotice && <button type="button" className="notification-live-toast" onClick={() => { setOpen(true); setLiveNotice(null); }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
+      <button
+        type="button"
+        className={`icon-btn notification-trigger ${open ? 'active' : ''}`}
+        onClick={() => setOpen((value) => !value)}
+        aria-label={unread ? `${unread} notificações não lidas` : 'Notificações'}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+      >
+        <FiBell />
+        {unread > 0 && <span className="notification-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
+      </button>
 
-    {open && <section className="notification-panel" role="dialog" aria-label="Central de notificações">
-      <div className="notification-head">
-        <div>
-          <small>CENTRAL PETER TECNET</small>
-          <h3>Notificações</h3>
+      {open && <section className="notification-panel" role="dialog" aria-label="Central de notificações">
+        <div className="notification-head">
+          <div>
+            <small>CENTRAL PETER TECNET</small>
+            <h3>Notificações</h3>
+          </div>
+          <div className="notification-head-actions">
+            {unread > 0 && <button type="button" onClick={markAllRead} title="Marcar todas como lidas"><FiCheckCircle /> <span>Ler todas</span></button>}
+            <button type="button" className="notification-close" onClick={() => setOpen(false)} aria-label="Fechar notificações"><FiX /></button>
+          </div>
         </div>
-        <div className="notification-head-actions">
-          {unread > 0 && <button type="button" onClick={markAllRead} title="Marcar todas como lidas"><FiCheckCircle /> <span>Ler todas</span></button>}
-          <button type="button" className="notification-close" onClick={() => setOpen(false)} aria-label="Fechar notificações"><FiX /></button>
-        </div>
-      </div>
 
-      <div className="notification-list">
-        {loading && !items.length && <div className="notification-state"><FiLoader className="spin" /><span>Sincronizando notificações…</span></div>}
-        {error && !items.length && <div className="notification-state error"><span>{error}</span><button type="button" onClick={loadNotifications}>Tentar novamente</button></div>}
-        {!loading && !error && !items.length && <div className="notification-state"><FiBell /><b>Tudo em dia</b><span>Alertas de mercado e atualizações da sua conta aparecerão aqui.</span></div>}
-        {items.map((notification) => <button
-          type="button"
-          className={`notification-item ${notification.read_at ? 'read' : 'unread'}`}
-          key={notification.id}
-          onClick={() => markRead(notification)}
-        >
-          <span className="notification-status">{notification.read_at ? <FiCheck /> : <i />}</span>
-          <span className="notification-copy">
-            <b>{notification.title || 'Nova notificação'}</b>
-            {notification.message && <span>{notification.message}</span>}
-            <small>{relativeTime(notification.created_at)}</small>
-          </span>
-        </button>)}
-      </div>
-    </section>}
-  </div>;
+        <div className="notification-list">
+          {loading && !items.length && <div className="notification-state"><FiLoader className="spin" /><span>Sincronizando notificações…</span></div>}
+          {error && !items.length && <div className="notification-state error"><span>{error}</span><button type="button" onClick={loadNotifications}>Tentar novamente</button></div>}
+          {!loading && !error && !items.length && <div className="notification-state"><FiBell /><b>Tudo em dia</b><span>Alertas de mercado e atualizações da sua conta aparecerão aqui.</span></div>}
+          {items.map((notification) => <button
+            type="button"
+            className={`notification-item ${notification.read_at ? 'read' : 'unread'}`}
+            key={notification.id}
+            onClick={() => markRead(notification)}
+          >
+            <span className="notification-status">{notification.read_at ? <FiCheck /> : <i />}</span>
+            <span className="notification-copy">
+              <b>{notification.title || 'Nova notificação'}</b>
+              {notification.message && <span>{notification.message}</span>}
+              <small>{relativeTime(notification.created_at)}</small>
+            </span>
+          </button>)}
+        </div>
+      </section>}
+    </div>
+  </>;
 }
