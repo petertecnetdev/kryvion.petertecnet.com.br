@@ -6,6 +6,7 @@ import './market-integrity.css';
 import './market-tools.css';
 import './notification-center.css';
 import './kryvion-fullscreen-menu.css';
+import './floating-tools-safety.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { API_BASE_URL, APP_SLUG } from './services/api.js';
