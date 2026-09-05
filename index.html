@@ -50,6 +50,19 @@
     <div id="root"></div>
     <script type="module" src="/src/entry.jsx"></script>
     <script>
+      // Defensive cleanup for malformed literal newline markers injected into the
+      // document by generated/deployed HTML. Real whitespace text nodes are kept.
+      const removeStrayNewlineMarkers = () => {
+        for (const node of [...document.body.childNodes]) {
+          if (node.nodeType !== Node.TEXT_NODE) continue;
+          const value = node.textContent.trim();
+          if (value === '\\n' || value === '/n') node.remove();
+        }
+      };
+
+      removeStrayNewlineMarkers();
+      window.addEventListener('DOMContentLoaded', removeStrayNewlineMarkers, { once: true });
+
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', async () => {
           try {
