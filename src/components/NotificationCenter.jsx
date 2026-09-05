@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FiBell, FiCheck, FiCheckCircle, FiLoader, FiX } from 'react-icons/fi';
 import { marketApi } from '../services/api.js';
+import { connectNotificationRealtime } from '../services/realtime.js';
 
 const POLL_MS = 60_000;
 
@@ -27,6 +28,7 @@ export default function NotificationCenter({ onNavigate }) {
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [liveNotice, setLiveNotice] = useState(null);
   const shellRef = useRef(null);
 
   const loadCount = useCallback(async () => {
@@ -68,6 +70,22 @@ export default function NotificationCenter({ onNavigate }) {
   useEffect(() => {
     if (open) loadNotifications();
   }, [open, loadNotifications]);
+  useEffect(() => {
+    let disconnect = () => {};
+    let active = true;
+    connectNotificationRealtime((notification) => {
+      if (!active || !notification?.id) return;
+      setUnread((current) => current + (notification.read_at ? 0 : 1));
+      setItems((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 20));
+      setLiveNotice(notification);
+      window.setTimeout(() => setLiveNotice((current) => current?.id === notification.id ? null : current), 8000);
+      if (document.visibilityState !== 'visible' && window.Notification?.permission === 'granted') {
+        new window.Notification(notification.title || 'Kryvion', { body: notification.message || 'Novo alerta de mercado.' });
+      }
+    }).then((cleanup) => { if (active) disconnect = cleanup; else cleanup?.(); });
+    return () => { active = false; disconnect(); };
+  }, []);
+
 
   useEffect(() => {
     if (!open) return undefined;
@@ -118,6 +136,7 @@ export default function NotificationCenter({ onNavigate }) {
   };
 
   return <div className="notification-center" ref={shellRef}>
+    {liveNotice && <button type="button" className="notification-live-toast" onClick={() => { setOpen(true); setLiveNotice(null); }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
     <button
       type="button"
       className={`icon-btn notification-trigger ${open ? 'active' : ''}`}

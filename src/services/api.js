@@ -206,6 +206,7 @@ api.interceptors.response.use(
 export const marketApi = {
   overview: () => api.get(`/v1/apps/${APP_SLUG}/market/overview`),
   scanner: (params = {}) => api.get(`/v1/apps/${APP_SLUG}/market/scanner`, { params }),
+  realtimeConfig: () => api.get(`/v1/apps/${APP_SLUG}/market/realtime-config`),
   ohlcv: (asset, params = {}) => api.get(`/v1/apps/${APP_SLUG}/market/assets/${encodeURIComponent(asset)}/ohlcv`, { params }),
   analyze: (data) => api.post(`/v1/apps/${APP_SLUG}/market/analyze`, data),
   portfolio: () => api.get(`/v1/apps/${APP_SLUG}/market/portfolio`),
