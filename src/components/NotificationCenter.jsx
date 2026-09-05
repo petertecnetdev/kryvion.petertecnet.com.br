@@ -1,7 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FiBell, FiCheck, FiCheckCircle, FiLoader, FiShare2, FiVolume2, FiX } from 'react-icons/fi';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  FiActivity,
+  FiBell,
+  FiCheck,
+  FiCheckCircle,
+  FiChevronRight,
+  FiDatabase,
+  FiExternalLink,
+  FiInfo,
+  FiLoader,
+  FiShare2,
+  FiShield,
+  FiTrendingUp,
+  FiVolume2,
+  FiX,
+} from 'react-icons/fi';
 import { marketApi } from '../services/api.js';
 import { connectNotificationRealtime } from '../services/realtime.js';
+import '../notification-insight.css';
 
 const POLL_MS = 60_000;
 
@@ -24,7 +40,7 @@ function playNotificationSound() {
     oscillator.stop(context.currentTime + 0.3);
     oscillator.addEventListener('ended', () => context.close().catch(() => {}), { once: true });
   } catch {
-    // O navegador pode bloquear áudio até ocorrer uma interação do usuário.
+    // Alguns navegadores bloqueiam áudio até a primeira interação do usuário.
   }
 }
 
@@ -97,11 +113,186 @@ function getNotificationDetailUrl(notification) {
   }
 }
 
+function getMarketSymbol(notification) {
+  const direct = notification?.asset_symbol || notification?.symbol || notification?.metadata?.symbol || notification?.data?.symbol;
+  if (direct) return String(direct).toUpperCase();
+  try {
+    const url = new URL(notification?.reference_url || '', window.location.origin);
+    return (url.searchParams.get('marketReport') || url.searchParams.get('symbol') || '').toUpperCase();
+  } catch {
+    return '';
+  }
+}
+
 function buildWhatsAppMessage(notification) {
   const title = notification?.title || 'Alerta de mercado Kryvion';
   const message = notification?.message ? `\n\n${notification.message}` : '';
   const detailUrl = getNotificationDetailUrl(notification);
   return `🚨 Kryvion · ${title}${message}\n\nVeja o detalhamento atualizado da análise:\n${detailUrl}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`;
+}
+
+function formatUsd(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: Number(value) < 1 ? 6 : 2,
+  }).format(Number(value || 0));
+}
+
+function formatPct(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const number = Number(value || 0);
+  return `${number >= 0 ? '+' : ''}${number.toFixed(2)}%`;
+}
+
+function normalizeSources(report, notification) {
+  const received = report?.sources || notification?.sources || notification?.metadata?.sources || notification?.data?.sources;
+  if (Array.isArray(received) && received.length) {
+    return received.map((source, index) => typeof source === 'string'
+      ? { name: source, detail: 'Fonte informada pela análise.' }
+      : {
+        name: source?.name || source?.provider || source?.label || `Fonte ${index + 1}`,
+        detail: source?.detail || source?.description || source?.data || source?.fields || 'Dados utilizados na análise.',
+        url: source?.url || source?.reference_url || '',
+      });
+  }
+
+  return [
+    {
+      name: 'CoinGecko',
+      detail: 'Preço, capitalização, volume e variações de mercado usados no snapshot da Kryvion.',
+    },
+    {
+      name: 'Binance Spot',
+      detail: 'Candles OHLCV e atividade de negociação quando a análise técnica do ativo utiliza séries de mercado.',
+    },
+    {
+      name: 'Kryvion Intelligence Engine',
+      detail: 'Score, confiança, classificação, confluências, riscos e faixas probabilísticas calculados pela Kryvion.',
+    },
+  ];
+}
+
+function plainConclusion(notification, report) {
+  if (report?.timing_note) return report.timing_note;
+  if (notification?.explanation) return notification.explanation;
+  if (notification?.message) return notification.message;
+  return 'A Kryvion detectou uma combinação de sinais que merece atenção. A leitura abaixo mostra o que sustentou o alerta e quais dados foram utilizados.';
+}
+
+function NotificationInsight({ notification, onClose, onNavigate }) {
+  const symbol = useMemo(() => getMarketSymbol(notification), [notification]);
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(Boolean(symbol));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    if (!symbol) {
+      setLoading(false);
+      return undefined;
+    }
+
+    marketApi.opportunityReport(symbol)
+      .then((response) => {
+        if (active) setReport(response.data?.data || response.data);
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError?.response?.data?.message || 'Não foi possível atualizar o relatório deste ativo agora.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [symbol]);
+
+  const reasons = report?.reasons || notification?.reasons || notification?.metadata?.reasons || notification?.data?.reasons || [];
+  const risks = report?.risks || notification?.risks || notification?.metadata?.risks || notification?.data?.risks || [];
+  const sources = normalizeSources(report, notification);
+  const hasMetrics = report && [report.price_usd, report.change_1h, report.change_24h, report.change_7d, report.score, report.confidence].some((value) => value !== null && value !== undefined);
+
+  const openReference = () => {
+    const target = notification?.reference_url;
+    if (!target) return;
+    onClose();
+    if (onNavigate) onNavigate(target, notification);
+  };
+
+  return <div className="notification-insight-overlay" role="dialog" aria-modal="true" aria-label="Detalhamento da notificação">
+    <article className="notification-insight-card">
+      <header className="notification-insight-header">
+        <div>
+          <small>KRYVION · EXPLICAÇÃO DO ALERTA</small>
+          <h2>{notification?.title || (symbol ? `Análise de ${symbol}` : 'Detalhamento da notificação')}</h2>
+          <p>{relativeTime(notification?.created_at)}</p>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Fechar detalhamento"><FiX /></button>
+      </header>
+
+      <section className="notification-insight-summary">
+        <span className="notification-insight-summary-icon"><FiTrendingUp /></span>
+        <div>
+          <small>O QUE ISSO QUER DIZER</small>
+          <p>{plainConclusion(notification, report)}</p>
+        </div>
+      </section>
+
+      {loading && <div className="notification-insight-loading"><FiLoader className="spin" /><span>Atualizando os dados usados nesta análise…</span></div>}
+      {error && <div className="notification-insight-warning"><FiInfo /><span>{error} A explicação original da notificação continua disponível abaixo.</span></div>}
+
+      {report && <section className="notification-insight-verdict">
+        <div><small>CLASSIFICAÇÃO</small><strong>{report.classification || 'Em observação'}</strong></div>
+        <div><small>SCORE</small><strong>{report.score ?? '—'}<span>/100</span></strong></div>
+        <div><small>CONFIANÇA</small><strong>{report.confidence ?? '—'}<span>%</span></strong></div>
+      </section>}
+
+      <section className="notification-insight-section">
+        <div className="notification-insight-section-title"><FiActivity /><div><small>POR QUE ISSO É INTERESSANTE</small><h3>Evidências que sustentam o alerta</h3></div></div>
+        {reasons.length
+          ? <div className="notification-insight-reasons">{reasons.map((reason, index) => <div key={`${reason}-${index}`}><b>{index + 1}</b><span>{reason}</span></div>)}</div>
+          : <p className="notification-insight-empty">A notificação não trouxe uma lista estruturada de confluências. A Kryvion exibe somente o que recebeu da análise, sem completar evidências artificialmente.</p>}
+      </section>
+
+      {hasMetrics && <section className="notification-insight-section">
+        <div className="notification-insight-section-title"><FiDatabase /><div><small>DADOS OBSERVADOS</small><h3>Números usados para contextualizar a conclusão</h3></div></div>
+        <div className="notification-insight-metrics">
+          <div><small>PREÇO AGORA</small><b>{formatUsd(report.price_usd)}</b></div>
+          <div><small>1 HORA</small><b>{formatPct(report.change_1h)}</b></div>
+          <div><small>24 HORAS</small><b>{formatPct(report.change_24h)}</b></div>
+          <div><small>7 DIAS</small><b>{formatPct(report.change_7d)}</b></div>
+          {report.entry_window && <div className="wide"><small>ENTRADA / CONFIRMAÇÃO</small><b>{report.entry_window}</b></div>}
+          {report.target_price_min_usd !== undefined && <div className="wide"><small>FAIXA-ALVO PROBABILÍSTICA</small><b>{formatUsd(report.target_price_min_usd)} – {formatUsd(report.target_price_max_usd)}</b></div>}
+        </div>
+      </section>}
+
+      <section className="notification-insight-section">
+        <div className="notification-insight-section-title"><FiDatabase /><div><small>FONTES E PROCEDÊNCIA</small><h3>De onde vieram os dados</h3></div></div>
+        <div className="notification-insight-sources">
+          {sources.map((source, index) => <div key={`${source.name}-${index}`}>
+            <span>{index + 1}</span>
+            <div><b>{source.name}</b><p>{typeof source.detail === 'string' ? source.detail : JSON.stringify(source.detail)}</p></div>
+            {source.url && <a href={source.url} target="_blank" rel="noreferrer" aria-label={`Abrir fonte ${source.name}`}><FiExternalLink /></a>}
+          </div>)}
+        </div>
+      </section>
+
+      {(risks.length > 0 || report?.disclaimer) && <section className="notification-insight-risk">
+        <FiShield />
+        <div>
+          <b>O que pode invalidar essa leitura?</b>
+          {risks.length > 0 && <p>{risks.join(' ')}</p>}
+          {report?.disclaimer && <small>{report.disclaimer}</small>}
+        </div>
+      </section>}
+
+      <footer className="notification-insight-footer">
+        <button type="button" className="notification-insight-share" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(buildWhatsAppMessage(notification))}`, '_blank', 'noopener,noreferrer')}><FiShare2 /> Compartilhar</button>
+        {notification?.reference_url && <button type="button" className="notification-insight-reference" onClick={openReference}>Abrir análise completa <FiChevronRight /></button>}
+      </footer>
+    </article>
+  </div>;
 }
 
 export default function NotificationCenter({ onNavigate }) {
@@ -111,6 +302,7 @@ export default function NotificationCenter({ onNavigate }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [liveNotice, setLiveNotice] = useState(null);
+  const [selectedNotification, setSelectedNotification] = useState(null);
   const shellRef = useRef(null);
 
   const loadCount = useCallback(async () => {
@@ -192,15 +384,10 @@ export default function NotificationCenter({ onNavigate }) {
         await marketApi.markNotificationRead(notification.id);
       } catch {
         loadNotifications();
-        return;
       }
     }
-
-    const target = notification?.reference_url;
-    if (target) {
-      setOpen(false);
-      if (onNavigate) onNavigate(target, notification);
-    }
+    setOpen(false);
+    setSelectedNotification(notification);
   };
 
   const shareOnWhatsApp = (notification, event) => {
@@ -226,8 +413,9 @@ export default function NotificationCenter({ onNavigate }) {
 
   return <>
     <NotificationPermissionGate />
+    {selectedNotification && <NotificationInsight notification={selectedNotification} onClose={() => setSelectedNotification(null)} onNavigate={onNavigate} />}
     <div className="notification-center" ref={shellRef}>
-      {liveNotice && <button type="button" className="notification-live-toast" onClick={() => { setOpen(true); setLiveNotice(null); }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
+      {liveNotice && <button type="button" className="notification-live-toast" onClick={() => { setSelectedNotification(liveNotice); setLiveNotice(null); }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
       <button
         type="button"
         className={`icon-btn notification-trigger ${open ? 'active' : ''}`}
@@ -243,7 +431,7 @@ export default function NotificationCenter({ onNavigate }) {
       {open && <section className="notification-panel" role="dialog" aria-label="Central de notificações">
         <div className="notification-head">
           <div>
-            <small>CENTRAL PETER TECNET</small>
+            <small>CENTRAL KRYVION</small>
             <h3>Notificações</h3>
           </div>
           <div className="notification-head-actions">
@@ -273,7 +461,7 @@ export default function NotificationCenter({ onNavigate }) {
             <span className="notification-copy">
               <b>{notification.title || 'Nova notificação'}</b>
               {notification.message && <span>{notification.message}</span>}
-              <small>{relativeTime(notification.created_at)}</small>
+              <small>{relativeTime(notification.created_at)} · toque para entender</small>
             </span>
             <button
               type="button"
