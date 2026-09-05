@@ -13,6 +13,13 @@
   "orientation": "any",
   "categories": ["finance", "business", "utilities"],
   "prefer_related_applications": false,
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://kryvion.petertecnet.com.br/manifest.json",
+      "id": "/"
+    }
+  ],
   "icons": [
     {
       "src": "/pwa-icon.svg",
