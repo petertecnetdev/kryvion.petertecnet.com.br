@@ -1,0 +1,64 @@
+/*
+ * Kryvion floating tools safety layer.
+ * Market Intelligence and the CoinMarketCap scanner must never cover content
+ * passively. They stay completely out of the viewport while closed and only
+ * become visible after the user explicitly opens them from the Kryvion menu.
+ */
+
+.kry-intel-dock.closed,
+.cmc-scanner:not(.open){
+  width:0!important;
+  height:0!important;
+  right:0!important;
+  bottom:0!important;
+  overflow:hidden!important;
+  filter:none!important;
+  pointer-events:none!important;
+}
+
+.kry-intel-dock.closed .kry-intel-toggle,
+.cmc-scanner:not(.open) .cmc-launcher{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  min-width:0!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  opacity:0!important;
+  overflow:hidden!important;
+  pointer-events:none!important;
+  box-shadow:none!important;
+}
+
+/* When intentionally opened, keep the tool inside the viewport. */
+.kry-intel-dock.open .kry-intel-body,
+.cmc-scanner.open .cmc-body{
+  max-height:calc(100dvh - 128px)!important;
+  overflow:auto!important;
+  overscroll-behavior:contain;
+}
+
+/* Belt-and-suspenders protection for landing, login, blog and public pages. */
+@supports selector(body:has(.app-shell)){
+  body:not(:has(.app-shell)) #kryvion-market-intelligence-root,
+  body:not(:has(.app-shell)) #kryvion-cmc-scanner-root,
+  body:not(:has(.app-shell)) #kryvion-market-provenance-root{
+    display:none!important;
+  }
+}
+
+@media(max-width:900px){
+  .kry-intel-dock.open,
+  .cmc-scanner.open{
+    right:12px!important;
+    bottom:12px!important;
+    width:calc(100vw - 24px)!important;
+  }
+
+  .kry-intel-dock.open .kry-intel-body,
+  .cmc-scanner.open .cmc-body{
+    max-height:calc(100dvh - 96px)!important;
+  }
+}
