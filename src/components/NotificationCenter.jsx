@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FiBell, FiCheck, FiCheckCircle, FiLoader, FiVolume2, FiX } from 'react-icons/fi';
+import { FiBell, FiCheck, FiCheckCircle, FiLoader, FiShare2, FiVolume2, FiX } from 'react-icons/fi';
 import { marketApi } from '../services/api.js';
 import { connectNotificationRealtime } from '../services/realtime.js';
 
@@ -87,6 +87,21 @@ function relativeTime(value) {
   if (seconds < 3600) return `há ${Math.floor(seconds / 60)} min`;
   if (seconds < 86400) return `há ${Math.floor(seconds / 3600)} h`;
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+}
+
+function getNotificationDetailUrl(notification) {
+  try {
+    return new URL(notification?.reference_url || window.location.href, window.location.origin).href;
+  } catch {
+    return window.location.href;
+  }
+}
+
+function buildWhatsAppMessage(notification) {
+  const title = notification?.title || 'Alerta de mercado Kryvion';
+  const message = notification?.message ? `\n\n${notification.message}` : '';
+  const detailUrl = getNotificationDetailUrl(notification);
+  return `🚨 Kryvion · ${title}${message}\n\nVeja o detalhamento atualizado da análise:\n${detailUrl}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`;
 }
 
 export default function NotificationCenter({ onNavigate }) {
@@ -188,6 +203,12 @@ export default function NotificationCenter({ onNavigate }) {
     }
   };
 
+  const shareOnWhatsApp = (notification, event) => {
+    event?.stopPropagation();
+    const text = buildWhatsAppMessage(notification);
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+  };
+
   const markAllRead = async () => {
     if (!unread) return;
     const previousItems = items;
@@ -235,11 +256,18 @@ export default function NotificationCenter({ onNavigate }) {
           {loading && !items.length && <div className="notification-state"><FiLoader className="spin" /><span>Sincronizando notificações…</span></div>}
           {error && !items.length && <div className="notification-state error"><span>{error}</span><button type="button" onClick={loadNotifications}>Tentar novamente</button></div>}
           {!loading && !error && !items.length && <div className="notification-state"><FiBell /><b>Tudo em dia</b><span>Alertas de mercado e atualizações da sua conta aparecerão aqui.</span></div>}
-          {items.map((notification) => <button
-            type="button"
+          {items.map((notification) => <div
             className={`notification-item ${notification.read_at ? 'read' : 'unread'}`}
             key={notification.id}
+            role="button"
+            tabIndex={0}
             onClick={() => markRead(notification)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                markRead(notification);
+              }
+            }}
           >
             <span className="notification-status">{notification.read_at ? <FiCheck /> : <i />}</span>
             <span className="notification-copy">
@@ -247,7 +275,17 @@ export default function NotificationCenter({ onNavigate }) {
               {notification.message && <span>{notification.message}</span>}
               <small>{relativeTime(notification.created_at)}</small>
             </span>
-          </button>)}
+            <button
+              type="button"
+              className="notification-share"
+              onClick={(event) => shareOnWhatsApp(notification, event)}
+              aria-label={`Compartilhar ${notification.title || 'notificação'} pelo WhatsApp`}
+              title="Compartilhar pelo WhatsApp"
+              style={{ alignSelf: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', width: 36, height: 36, borderRadius: 12, border: '1px solid rgba(97,244,203,.22)', background: 'rgba(97,244,203,.08)', cursor: 'pointer' }}
+            >
+              <FiShare2 />
+            </button>
+          </div>)}
         </div>
       </section>}
     </div>
