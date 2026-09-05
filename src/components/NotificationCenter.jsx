@@ -20,6 +20,9 @@ import { connectNotificationRealtime } from '../services/realtime.js';
 import '../notification-insight.css';
 
 const POLL_MS = 60_000;
+const SHARED_NOTIFICATION_PARAM = 'notification';
+const SHARED_NOTIFICATION_PAGE_SIZE = 50;
+const MAX_SHARED_NOTIFICATION_PAGES = 40;
 
 function playNotificationSound() {
   try {
@@ -107,9 +110,22 @@ function relativeTime(value) {
 
 function getNotificationDetailUrl(notification) {
   try {
-    return new URL(notification?.reference_url || window.location.href, window.location.origin).href;
+    const url = new URL(window.location.href);
+    url.searchParams.set(SHARED_NOTIFICATION_PARAM, String(notification?.id || ''));
+    return url.href;
   } catch {
     return window.location.href;
+  }
+}
+
+function setNotificationUrl(notificationId) {
+  try {
+    const url = new URL(window.location.href);
+    if (notificationId) url.searchParams.set(SHARED_NOTIFICATION_PARAM, String(notificationId));
+    else url.searchParams.delete(SHARED_NOTIFICATION_PARAM);
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // O detalhamento continua funcional mesmo se o navegador bloquear History API.
   }
 }
 
@@ -124,11 +140,31 @@ function getMarketSymbol(notification) {
   }
 }
 
-function buildWhatsAppMessage(notification) {
+function buildShareMessage(notification) {
   const title = notification?.title || 'Alerta de mercado Kryvion';
   const message = notification?.message ? `\n\n${notification.message}` : '';
   const detailUrl = getNotificationDetailUrl(notification);
-  return `🚨 Kryvion · ${title}${message}\n\nVeja o detalhamento atualizado da análise:\n${detailUrl}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`;
+  return `🚨 Kryvion · ${title}${message}\n\nVeja o detalhamento completo da notificação:\n${detailUrl}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`;
+}
+
+async function shareNotification(notification) {
+  if (!notification?.id) return;
+  const title = notification?.title || 'Alerta de mercado Kryvion';
+  const url = getNotificationDetailUrl(notification);
+  const text = notification?.message
+    ? `${notification.message}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`
+    : 'Veja o detalhamento completo desta análise da Kryvion.';
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: `Kryvion · ${title}`, text, url });
+      return;
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+    }
+  }
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(buildShareMessage(notification))}`, '_blank', 'noopener,noreferrer');
 }
 
 function formatUsd(value) {
@@ -288,7 +324,7 @@ function NotificationInsight({ notification, onClose, onNavigate }) {
       </section>}
 
       <footer className="notification-insight-footer">
-        <button type="button" className="notification-insight-share" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(buildWhatsAppMessage(notification))}`, '_blank', 'noopener,noreferrer')}><FiShare2 /> Compartilhar</button>
+        <button type="button" className="notification-insight-share" onClick={() => shareNotification(notification)}><FiShare2 /> Compartilhar</button>
         {notification?.reference_url && <button type="button" className="notification-insight-reference" onClick={openReference}>Abrir análise completa <FiChevronRight /></button>}
       </footer>
     </article>
@@ -304,6 +340,7 @@ export default function NotificationCenter({ onNavigate }) {
   const [liveNotice, setLiveNotice] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const shellRef = useRef(null);
+  const sharedNotificationLoadedRef = useRef('');
 
   const loadCount = useCallback(async () => {
     try {
@@ -328,6 +365,35 @@ export default function NotificationCenter({ onNavigate }) {
     }
   }, []);
 
+  const loadSharedNotification = useCallback(async (notificationId) => {
+    if (!notificationId || sharedNotificationLoadedRef.current === String(notificationId)) return;
+    sharedNotificationLoadedRef.current = String(notificationId);
+
+    try {
+      for (let page = 1; page <= MAX_SHARED_NOTIFICATION_PAGES; page += 1) {
+        const { data } = await marketApi.notifications({ per_page: SHARED_NOTIFICATION_PAGE_SIZE, page });
+        const pageItems = normalizeList(data);
+        const notification = pageItems.find((item) => String(item.id) === String(notificationId));
+
+        if (notification) {
+          setSelectedNotification(notification);
+          setItems((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 20));
+          if (!notification.read_at) {
+            marketApi.markNotificationRead(notification.id).then(() => loadCount()).catch(() => {});
+          }
+          return;
+        }
+
+        const paginator = data?.notifications;
+        const currentPage = Number(paginator?.current_page || page);
+        const lastPage = Number(paginator?.last_page || currentPage);
+        if (!pageItems.length || currentPage >= lastPage) break;
+      }
+    } catch {
+      sharedNotificationLoadedRef.current = '';
+    }
+  }, [loadCount]);
+
   useEffect(() => {
     loadCount();
     const timer = window.setInterval(() => {
@@ -344,6 +410,17 @@ export default function NotificationCenter({ onNavigate }) {
   useEffect(() => {
     if (open) loadNotifications();
   }, [open, loadNotifications]);
+
+  useEffect(() => {
+    const syncSharedNotification = () => {
+      const notificationId = new URLSearchParams(window.location.search).get(SHARED_NOTIFICATION_PARAM);
+      if (notificationId) loadSharedNotification(notificationId);
+    };
+
+    syncSharedNotification();
+    window.addEventListener('popstate', syncSharedNotification);
+    return () => window.removeEventListener('popstate', syncSharedNotification);
+  }, [loadSharedNotification]);
 
   useEffect(() => {
     let disconnect = () => {};
@@ -376,6 +453,12 @@ export default function NotificationCenter({ onNavigate }) {
     };
   }, [open]);
 
+  const closeNotificationDetail = () => {
+    setSelectedNotification(null);
+    sharedNotificationLoadedRef.current = '';
+    setNotificationUrl(null);
+  };
+
   const markRead = async (notification) => {
     if (!notification?.read_at) {
       setItems((current) => current.map((item) => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item));
@@ -388,12 +471,13 @@ export default function NotificationCenter({ onNavigate }) {
     }
     setOpen(false);
     setSelectedNotification(notification);
+    sharedNotificationLoadedRef.current = String(notification.id);
+    setNotificationUrl(notification.id);
   };
 
-  const shareOnWhatsApp = (notification, event) => {
+  const shareFromList = (notification, event) => {
     event?.stopPropagation();
-    const text = buildWhatsAppMessage(notification);
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+    shareNotification(notification);
   };
 
   const markAllRead = async () => {
@@ -413,9 +497,14 @@ export default function NotificationCenter({ onNavigate }) {
 
   return <>
     <NotificationPermissionGate />
-    {selectedNotification && <NotificationInsight notification={selectedNotification} onClose={() => setSelectedNotification(null)} onNavigate={onNavigate} />}
+    {selectedNotification && <NotificationInsight notification={selectedNotification} onClose={closeNotificationDetail} onNavigate={onNavigate} />}
     <div className="notification-center" ref={shellRef}>
-      {liveNotice && <button type="button" className="notification-live-toast" onClick={() => { setSelectedNotification(liveNotice); setLiveNotice(null); }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
+      {liveNotice && <button type="button" className="notification-live-toast" onClick={() => {
+        setSelectedNotification(liveNotice);
+        sharedNotificationLoadedRef.current = String(liveNotice.id);
+        setNotificationUrl(liveNotice.id);
+        setLiveNotice(null);
+      }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
       <button
         type="button"
         className={`icon-btn notification-trigger ${open ? 'active' : ''}`}
@@ -466,9 +555,9 @@ export default function NotificationCenter({ onNavigate }) {
             <button
               type="button"
               className="notification-share"
-              onClick={(event) => shareOnWhatsApp(notification, event)}
-              aria-label={`Compartilhar ${notification.title || 'notificação'} pelo WhatsApp`}
-              title="Compartilhar pelo WhatsApp"
+              onClick={(event) => shareFromList(notification, event)}
+              aria-label={`Compartilhar ${notification.title || 'notificação'}`}
+              title="Compartilhar notificação"
               style={{ alignSelf: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', width: 36, height: 36, borderRadius: 12, border: '1px solid rgba(97,244,203,.22)', background: 'rgba(97,244,203,.08)', cursor: 'pointer' }}
             >
               <FiShare2 />
