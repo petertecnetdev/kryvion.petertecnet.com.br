@@ -20,9 +20,6 @@ import { connectNotificationRealtime } from '../services/realtime.js';
 import '../notification-insight.css';
 
 const POLL_MS = 60_000;
-const SHARED_NOTIFICATION_PARAM = 'notification';
-const SHARED_NOTIFICATION_PAGE_SIZE = 50;
-const MAX_SHARED_NOTIFICATION_PAGES = 40;
 
 function playNotificationSound() {
   try {
@@ -110,22 +107,9 @@ function relativeTime(value) {
 
 function getNotificationDetailUrl(notification) {
   try {
-    const url = new URL(window.location.href);
-    url.searchParams.set(SHARED_NOTIFICATION_PARAM, String(notification?.id || ''));
-    return url.href;
+    return new URL(notification?.reference_url || window.location.href, window.location.origin).href;
   } catch {
     return window.location.href;
-  }
-}
-
-function setNotificationUrl(notificationId) {
-  try {
-    const url = new URL(window.location.href);
-    if (notificationId) url.searchParams.set(SHARED_NOTIFICATION_PARAM, String(notificationId));
-    else url.searchParams.delete(SHARED_NOTIFICATION_PARAM);
-    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-  } catch {
-    // O detalhamento continua funcional mesmo se o navegador bloquear History API.
   }
 }
 
@@ -140,31 +124,11 @@ function getMarketSymbol(notification) {
   }
 }
 
-function buildShareMessage(notification) {
+function buildWhatsAppMessage(notification) {
   const title = notification?.title || 'Alerta de mercado Kryvion';
   const message = notification?.message ? `\n\n${notification.message}` : '';
   const detailUrl = getNotificationDetailUrl(notification);
-  return `🚨 Kryvion · ${title}${message}\n\nVeja o detalhamento completo da notificação:\n${detailUrl}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`;
-}
-
-async function shareNotification(notification) {
-  if (!notification?.id) return;
-  const title = notification?.title || 'Alerta de mercado Kryvion';
-  const url = getNotificationDetailUrl(notification);
-  const text = notification?.message
-    ? `${notification.message}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`
-    : 'Veja o detalhamento completo desta análise da Kryvion.';
-
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: `Kryvion · ${title}`, text, url });
-      return;
-    } catch (error) {
-      if (error?.name === 'AbortError') return;
-    }
-  }
-
-  window.open(`https://wa.me/?text=${encodeURIComponent(buildShareMessage(notification))}`, '_blank', 'noopener,noreferrer');
+  return `🚨 Kryvion · ${title}${message}\n\nVeja o detalhamento atualizado da análise:\n${detailUrl}\n\nAnálise de dados da Kryvion. Não constitui recomendação financeira.`;
 }
 
 function formatUsd(value) {
@@ -217,6 +181,45 @@ function plainConclusion(notification, report) {
   return 'A Kryvion detectou uma combinação de sinais que merece atenção. A leitura abaixo mostra o que sustentou o alerta e quais dados foram utilizados.';
 }
 
+function buildAnalyticalNarrative(notification, report, symbol, reasons, risks) {
+  const asset = symbol || notification?.asset_name || notification?.metadata?.asset_name || 'este ativo';
+  const classification = report?.classification || notification?.classification || notification?.metadata?.classification || '';
+  const score = report?.score ?? notification?.score ?? notification?.metadata?.score;
+  const confidence = report?.confidence ?? notification?.confidence ?? notification?.metadata?.confidence;
+  const paragraphs = [];
+
+  const verdictParts = [];
+  if (classification) verdictParts.push(`classificação “${classification}”`);
+  if (score !== null && score !== undefined && score !== '') verdictParts.push(`score ${score}/100`);
+  if (confidence !== null && confidence !== undefined && confidence !== '') verdictParts.push(`confiança estimada em ${confidence}%`);
+
+  paragraphs.push(`A conclusão sobre ${asset} foi formada pela combinação dos sinais disponíveis no momento do alerta, e não por um único indicador isolado. ${verdictParts.length ? `O motor de inteligência consolidou essa leitura em ${verdictParts.join(', ')}.` : 'A Kryvion cruzou os dados recebidos e procurou confluências antes de destacar o movimento.'} Isso significa que o alerta representa uma leitura probabilística das condições observadas, e não uma garantia de que o preço seguirá uma direção específica.`);
+
+  const marketMoves = [];
+  if (report?.price_usd !== null && report?.price_usd !== undefined) marketMoves.push(`preço observado de ${formatUsd(report.price_usd)}`);
+  if (report?.change_1h !== null && report?.change_1h !== undefined) marketMoves.push(`variação de ${formatPct(report.change_1h)} em 1 hora`);
+  if (report?.change_24h !== null && report?.change_24h !== undefined) marketMoves.push(`variação de ${formatPct(report.change_24h)} em 24 horas`);
+  if (report?.change_7d !== null && report?.change_7d !== undefined) marketMoves.push(`variação de ${formatPct(report.change_7d)} em 7 dias`);
+  if (marketMoves.length) paragraphs.push(`Na leitura quantitativa, a Kryvion considerou ${marketMoves.join(', ')}. A comparação entre horizontes curtos e mais longos ajuda a identificar se existe aceleração, perda de força, continuidade ou possível mudança de comportamento. Quanto maior a concordância entre esses horizontes e os demais sinais, maior tende a ser a relevância do alerta.`);
+
+  if (reasons.length) {
+    const reasonText = reasons.slice(0, 6).map((reason, index) => `${index + 1}) ${typeof reason === 'string' ? reason : reason?.description || reason?.label || JSON.stringify(reason)}`).join(' ');
+    paragraphs.push(`As principais confluências que sustentaram a conclusão foram: ${reasonText} A importância está justamente na combinação: um sinal sozinho pode ser ruído, mas vários sinais coerentes entre si aumentam a qualidade estatística da leitura e justificam colocar ${asset} em destaque para acompanhamento.`);
+  } else {
+    paragraphs.push('Para este alerta não foi recebida uma lista estruturada de confluências. Por transparência, a Kryvion não cria motivos que não existam nos dados originais. Nesse caso, a conclusão deve ser interpretada com mais cautela e os números apresentados no detalhamento servem como contexto verificável do que estava disponível.');
+  }
+
+  const projectionParts = [];
+  if (report?.entry_window) projectionParts.push(`janela de confirmação/entrada indicada como “${report.entry_window}”`);
+  if (report?.target_price_min_usd !== null && report?.target_price_min_usd !== undefined && report?.target_price_max_usd !== null && report?.target_price_max_usd !== undefined) projectionParts.push(`faixa-alvo probabilística entre ${formatUsd(report.target_price_min_usd)} e ${formatUsd(report.target_price_max_usd)}`);
+  if (projectionParts.length) paragraphs.push(`Na parte prospectiva, o relatório registra ${projectionParts.join(' e ')}. Esses valores não são promessas de preço: são referências calculadas a partir do cenário analisado e só permanecem relevantes enquanto as condições que originaram o sinal continuarem válidas.`);
+
+  if (risks.length) paragraphs.push(`A análise também considera condições que podem enfraquecer ou invalidar a tese. Entre os riscos informados estão: ${risks.slice(0, 6).map((risk) => typeof risk === 'string' ? risk : risk?.description || risk?.label || JSON.stringify(risk)).join(' ')} Por isso, mesmo quando há possibilidade de aceleração ou valorização, a leitura deve ser revisada se o mercado passar a contrariar essas premissas.`);
+
+  paragraphs.push(`Em resumo, o alerta foi emitido porque a Kryvion encontrou dados suficientes para considerar o movimento de ${asset} relevante naquele instante. O objetivo do detalhamento é mostrar exatamente quais elementos sustentam essa conclusão, quais números foram observados, de onde vieram os dados e quais fatores podem fazer a leitura deixar de valer.`);
+  return paragraphs;
+}
+
 function NotificationInsight({ notification, onClose, onNavigate }) {
   const symbol = useMemo(() => getMarketSymbol(notification), [notification]);
   const [report, setReport] = useState(null);
@@ -248,6 +251,7 @@ function NotificationInsight({ notification, onClose, onNavigate }) {
   const risks = report?.risks || notification?.risks || notification?.metadata?.risks || notification?.data?.risks || [];
   const sources = normalizeSources(report, notification);
   const hasMetrics = report && [report.price_usd, report.change_1h, report.change_24h, report.change_7d, report.score, report.confidence].some((value) => value !== null && value !== undefined);
+  const analyticalNarrative = buildAnalyticalNarrative(notification, report, symbol, reasons, risks);
 
   const openReference = () => {
     const target = notification?.reference_url;
@@ -277,6 +281,13 @@ function NotificationInsight({ notification, onClose, onNavigate }) {
 
       {loading && <div className="notification-insight-loading"><FiLoader className="spin" /><span>Atualizando os dados usados nesta análise…</span></div>}
       {error && <div className="notification-insight-warning"><FiInfo /><span>{error} A explicação original da notificação continua disponível abaixo.</span></div>}
+
+      <section className="notification-insight-section notification-insight-analysis">
+        <div className="notification-insight-section-title"><FiInfo /><div><small>ANÁLISE COMPLETA</small><h3>Por que a Kryvion chegou a esta conclusão</h3></div></div>
+        <div className="notification-insight-analysis-copy">
+          {analyticalNarrative.map((paragraph, index) => <p key={`analysis-${index}`}>{paragraph}</p>)}
+        </div>
+      </section>
 
       {report && <section className="notification-insight-verdict">
         <div><small>CLASSIFICAÇÃO</small><strong>{report.classification || 'Em observação'}</strong></div>
@@ -324,7 +335,7 @@ function NotificationInsight({ notification, onClose, onNavigate }) {
       </section>}
 
       <footer className="notification-insight-footer">
-        <button type="button" className="notification-insight-share" onClick={() => shareNotification(notification)}><FiShare2 /> Compartilhar</button>
+        <button type="button" className="notification-insight-share" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(buildWhatsAppMessage(notification))}`, '_blank', 'noopener,noreferrer')}><FiShare2 /> Compartilhar</button>
         {notification?.reference_url && <button type="button" className="notification-insight-reference" onClick={openReference}>Abrir análise completa <FiChevronRight /></button>}
       </footer>
     </article>
@@ -340,7 +351,6 @@ export default function NotificationCenter({ onNavigate }) {
   const [liveNotice, setLiveNotice] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const shellRef = useRef(null);
-  const sharedNotificationLoadedRef = useRef('');
 
   const loadCount = useCallback(async () => {
     try {
@@ -365,35 +375,6 @@ export default function NotificationCenter({ onNavigate }) {
     }
   }, []);
 
-  const loadSharedNotification = useCallback(async (notificationId) => {
-    if (!notificationId || sharedNotificationLoadedRef.current === String(notificationId)) return;
-    sharedNotificationLoadedRef.current = String(notificationId);
-
-    try {
-      for (let page = 1; page <= MAX_SHARED_NOTIFICATION_PAGES; page += 1) {
-        const { data } = await marketApi.notifications({ per_page: SHARED_NOTIFICATION_PAGE_SIZE, page });
-        const pageItems = normalizeList(data);
-        const notification = pageItems.find((item) => String(item.id) === String(notificationId));
-
-        if (notification) {
-          setSelectedNotification(notification);
-          setItems((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 20));
-          if (!notification.read_at) {
-            marketApi.markNotificationRead(notification.id).then(() => loadCount()).catch(() => {});
-          }
-          return;
-        }
-
-        const paginator = data?.notifications;
-        const currentPage = Number(paginator?.current_page || page);
-        const lastPage = Number(paginator?.last_page || currentPage);
-        if (!pageItems.length || currentPage >= lastPage) break;
-      }
-    } catch {
-      sharedNotificationLoadedRef.current = '';
-    }
-  }, [loadCount]);
-
   useEffect(() => {
     loadCount();
     const timer = window.setInterval(() => {
@@ -410,17 +391,6 @@ export default function NotificationCenter({ onNavigate }) {
   useEffect(() => {
     if (open) loadNotifications();
   }, [open, loadNotifications]);
-
-  useEffect(() => {
-    const syncSharedNotification = () => {
-      const notificationId = new URLSearchParams(window.location.search).get(SHARED_NOTIFICATION_PARAM);
-      if (notificationId) loadSharedNotification(notificationId);
-    };
-
-    syncSharedNotification();
-    window.addEventListener('popstate', syncSharedNotification);
-    return () => window.removeEventListener('popstate', syncSharedNotification);
-  }, [loadSharedNotification]);
 
   useEffect(() => {
     let disconnect = () => {};
@@ -453,12 +423,6 @@ export default function NotificationCenter({ onNavigate }) {
     };
   }, [open]);
 
-  const closeNotificationDetail = () => {
-    setSelectedNotification(null);
-    sharedNotificationLoadedRef.current = '';
-    setNotificationUrl(null);
-  };
-
   const markRead = async (notification) => {
     if (!notification?.read_at) {
       setItems((current) => current.map((item) => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item));
@@ -471,13 +435,12 @@ export default function NotificationCenter({ onNavigate }) {
     }
     setOpen(false);
     setSelectedNotification(notification);
-    sharedNotificationLoadedRef.current = String(notification.id);
-    setNotificationUrl(notification.id);
   };
 
-  const shareFromList = (notification, event) => {
+  const shareOnWhatsApp = (notification, event) => {
     event?.stopPropagation();
-    shareNotification(notification);
+    const text = buildWhatsAppMessage(notification);
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
 
   const markAllRead = async () => {
@@ -497,14 +460,9 @@ export default function NotificationCenter({ onNavigate }) {
 
   return <>
     <NotificationPermissionGate />
-    {selectedNotification && <NotificationInsight notification={selectedNotification} onClose={closeNotificationDetail} onNavigate={onNavigate} />}
+    {selectedNotification && <NotificationInsight notification={selectedNotification} onClose={() => setSelectedNotification(null)} onNavigate={onNavigate} />}
     <div className="notification-center" ref={shellRef}>
-      {liveNotice && <button type="button" className="notification-live-toast" onClick={() => {
-        setSelectedNotification(liveNotice);
-        sharedNotificationLoadedRef.current = String(liveNotice.id);
-        setNotificationUrl(liveNotice.id);
-        setLiveNotice(null);
-      }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
+      {liveNotice && <button type="button" className="notification-live-toast" onClick={() => { setSelectedNotification(liveNotice); setLiveNotice(null); }}><small>AO VIVO · MERCADO</small><b>{liveNotice.title}</b>{liveNotice.message && <span>{liveNotice.message}</span>}</button>}
       <button
         type="button"
         className={`icon-btn notification-trigger ${open ? 'active' : ''}`}
@@ -555,9 +513,9 @@ export default function NotificationCenter({ onNavigate }) {
             <button
               type="button"
               className="notification-share"
-              onClick={(event) => shareFromList(notification, event)}
-              aria-label={`Compartilhar ${notification.title || 'notificação'}`}
-              title="Compartilhar notificação"
+              onClick={(event) => shareOnWhatsApp(notification, event)}
+              aria-label={`Compartilhar ${notification.title || 'notificação'} pelo WhatsApp`}
+              title="Compartilhar pelo WhatsApp"
               style={{ alignSelf: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', width: 36, height: 36, borderRadius: 12, border: '1px solid rgba(97,244,203,.22)', background: 'rgba(97,244,203,.08)', cursor: 'pointer' }}
             >
               <FiShare2 />
