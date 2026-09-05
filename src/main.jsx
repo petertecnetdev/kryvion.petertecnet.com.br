@@ -56,7 +56,40 @@ function ScoreRing({score}){
  return <div className="score-ring" style={{'--score':`${safe*3.6}deg`}}><span>{Math.round(safe)}</span></div>;
 }
 
+function MarketOpportunityReport({symbol,onClose}){
+ const [report,setReport]=useState(null);
+ const [loading,setLoading]=useState(true);
+ const [error,setError]=useState('');
+ useEffect(()=>{
+  let active=true;
+  marketApi.opportunityReport(symbol).then((response)=>{
+   if(active)setReport(response.data?.data||response.data);
+  }).catch((requestError)=>{
+   if(active)setError(requestError?.response?.data?.message||'Não foi possível carregar esta análise agora.');
+  }).finally(()=>{if(active)setLoading(false);});
+  return()=>{active=false;};
+ },[symbol]);
+ const usd=(value)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD',maximumFractionDigits:Number(value)<1?6:2}).format(Number(value||0));
+ return <div className="market-report-overlay" role="dialog" aria-modal="true" aria-label={`Análise de ${symbol}`}>
+  <div className="market-report-card">
+   <button className="market-report-close" onClick={onClose} aria-label="Fechar análise"><FiX/></button>
+   {loading&&<div className="market-report-loading"><FiActivity className="spin"/><b>Atualizando análise de {symbol}…</b><span>Os dados são recalculados no momento da abertura.</span></div>}
+   {error&&<div className="market-report-error"><FiShield/><b>Análise indisponível</b><span>{error}</span><button onClick={onClose}>Voltar ao painel</button></div>}
+   {report&&<>
+    <div className="market-report-brand"><span><KryvionMark/></span><div><small>KRYVION · RELATÓRIO AUTENTICADO</small><b>Análise completa de oportunidade</b></div></div>
+    <div className="market-report-hero"><div><small>{report.classification}</small><h2>{report.symbol} · {report.name}</h2><p>{report.timing_note||'Sinal multifator recalculado com dados atuais de mercado.'}</p></div><div className="market-report-score"><strong>{report.score}</strong><span>/100</span><small>{report.confidence}% confiança</small></div></div>
+    <div className="market-report-metrics"><span><small>PREÇO AGORA</small><b>{usd(report.price_usd)}</b></span><span><small>ENTRADA / CONFIRMAÇÃO</small><b>{report.entry_window}</b></span><span><small>JANELA DE SAÍDA</small><b>{report.exit_window}</b></span><span><small>ALVO PROBABILÍSTICO</small><b>{usd(report.target_price_min_usd)} – {usd(report.target_price_max_usd)}</b></span></div>
+    <div className="market-report-chart"><div><small>1H</small><span><i style={{width:`${Math.min(100,Math.max(5,Math.abs(Number(report.change_1h))*2))}%`}}/></span><b>{pct(report.change_1h)}</b></div><div><small>24H</small><span><i style={{width:`${Math.min(100,Math.max(5,Math.abs(Number(report.change_24h))*2))}%`}}/></span><b>{pct(report.change_24h)}</b></div><div><small>7D</small><span><i style={{width:`${Math.min(100,Math.max(5,Math.abs(Number(report.change_7d))*1.2))}%`}}/></span><b>{pct(report.change_7d)}</b></div></div>
+    <div className="market-report-grid"><section><small>POR QUE ENTRAR NO RADAR</small><h3>Confluências detectadas</h3><ul>{(report.reasons||[]).map((reason)=><li key={reason}>{reason}</li>)}</ul></section><section><small>QUANDO REALIZAR / SAIR</small><h3>Plano de monitoramento</h3><p>O alvo estatístico atual fica entre <b>{usd(report.target_price_min_usd)}</b> e <b>{usd(report.target_price_max_usd)}</b>, equivalente a aproximadamente +{Number(report.upside_min_pct).toFixed(1)}% a +{Number(report.upside_max_pct).toFixed(1)}% sobre o preço observado.</p><p>{report.exit_window}. Reavalie o sinal se momentum ou volume perderem confirmação antes da faixa-alvo.</p></section></div>
+    <div className="market-report-risk"><FiShield/><div><b>Riscos e invalidação</b><p>{(report.risks||[]).join(' ')} {report.disclaimer}</p></div></div>
+   </>}
+  </div>
+ </div>;
+}
+
 function App({user,onLogout}){
+ const initialReport=useMemo(()=>new URLSearchParams(window.location.search).get('marketReport'),[]);
+ const [marketReport,setMarketReport]=useState(initialReport);
  const [page,setPage]=useState('overview');
  const [mobile,setMobile]=useState(false);
  const cachedMarket=useMemo(()=>readMarketCache(),[]);
@@ -160,6 +193,7 @@ function App({user,onLogout}){
  };
 
  return <div className="app-shell">
+  {marketReport&&<MarketOpportunityReport symbol={marketReport} onClose={()=>{setMarketReport(null);const url=new URL(window.location.href);url.searchParams.delete('marketReport');window.history.replaceState({},'',url);}}/>}
   <aside className={`sidebar ${mobile?'open':''}`}>
    <div className="side-top"><Brand/><button className="close-mobile" onClick={()=>setMobile(false)}><FiX/></button></div>
    <nav>{nav.map(([id,label,Icon])=><button key={id} onClick={()=>{setPage(id);setMobile(false)}} className={page===id?'active':''}><Icon/><span>{label}</span></button>)}</nav>
@@ -475,7 +509,8 @@ function AuthRoot(){
  const publicPath=window.location.pathname;
  if(publicPath==='/blog'||publicPath.startsWith('/blog/'))return <PublicSite/>;
  if(checking)return <div className="auth-splash"><div className="auth-splash-mark"><KryvionMark/></div><strong>KRYVION</strong><span>Sincronizando sua Conta Peter Tecnet…</span></div>;
- if(!authenticated)return publicPath==='/entrar'?<LoginScreen onAuthenticated={signedIn}/>:<PublicSite/>;
+ const requiresReportAuth=Boolean(new URLSearchParams(window.location.search).get('marketReport'));
+ if(!authenticated)return (publicPath==='/entrar'||requiresReportAuth)?<LoginScreen onAuthenticated={signedIn}/>:<PublicSite/>;
  return <App user={user} onLogout={signOut}/>;
 }
 
