@@ -3,7 +3,7 @@ import { API_BASE_URL, APP_SLUG } from '../services/api.js';
 import { installPeterWhatsappFallback } from '../utils/peterWhatsappFallback.js';
 
 const SDK_VERSION = '3.0.0';
-const TELEMETRY_VERSION = '3.2.0';
+const TELEMETRY_VERSION = '3.3.3';
 const SDK_URL = `https://petertecnet.com.br/ecosystem/peter-ecosystem-v3.js?v=${SDK_VERSION}`;
 const TELEMETRY_URL = `https://petertecnet.com.br/ecosystem/peter-telemetry-v3.js?v=${TELEMETRY_VERSION}`;
 let sdkPromise;
