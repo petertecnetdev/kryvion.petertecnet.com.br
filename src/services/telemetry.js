@@ -1,4 +1,4 @@
-const TELEMETRY_VERSION = '3.3.1';
+const TELEMETRY_VERSION = '3.3.2';
 const TELEMETRY_URL = `https://petertecnet.com.br/ecosystem/peter-telemetry-v3.js?v=${TELEMETRY_VERSION}`;
 const SCRIPT_ID = 'peter-telemetry-v3-sdk';
 const MAX_PENDING_EVENTS = 100;
