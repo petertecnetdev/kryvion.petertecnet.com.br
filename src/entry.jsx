@@ -8,6 +8,7 @@ import './notification-center.css';
 import './kryvion-fullscreen-menu.css';
 import './floating-tools-safety.css';
 import './processing-experience.css';
+import './readability-boost.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { API_BASE_URL, APP_SLUG } from './services/api.js';
