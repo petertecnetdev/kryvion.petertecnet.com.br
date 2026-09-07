@@ -1,0 +1,209 @@
+/* Kryvion readability boost.
+   Final cascade layer: keep dense financial UI readable on desktop and mobile. */
+
+:root {
+  --kry-fs-micro: clamp(.82rem, .79rem + .10vw, .90rem);
+  --kry-fs-xs: clamp(.90rem, .86rem + .12vw, .98rem);
+  --kry-fs-sm: clamp(.98rem, .94rem + .14vw, 1.08rem);
+  --kry-fs-body: clamp(1rem, .96rem + .16vw, 1.10rem);
+  --kry-fs-lg: clamp(1.12rem, 1.06rem + .22vw, 1.28rem);
+}
+
+html {
+  font-size: 17px;
+}
+
+body {
+  font-size: var(--kry-fs-body);
+  line-height: 1.62;
+}
+
+body .page-head p:not(.eyebrow),
+body .hero-card p,
+body .signal-card p,
+body .empty p,
+body .login-card-subtitle,
+body .login-story-copy > p {
+  font-size: var(--kry-fs-sm);
+}
+
+body .timestamp,
+body .confidence > span,
+body .confidence > b,
+body .metric-card small,
+body .panel-head button,
+body .radar-card button,
+body .table-row,
+body .score-ring span,
+body .decision label,
+body .risk-form label,
+body .primary,
+body .risk-mini small,
+body .risk-mini strong,
+body .side-bottom a,
+body .market-status,
+body .avatar,
+body .account-copy b,
+body .kry-chart-title > span,
+body .kry-timeframes button,
+body .kry-legend button,
+body .kry-note,
+body .login-kicker,
+body .login-features b,
+body .login-field > span,
+body .login-error,
+body .auth-splash span {
+  font-size: var(--kry-fs-xs);
+}
+
+body .eyebrow,
+body .panel-head small,
+body .panel > small,
+body .label,
+body .metric-card em,
+body .table-head,
+body .asset-name small,
+body .pill,
+body .guardian-note,
+body .allocation-item small,
+body .allocation-item span,
+body .allocation-item em,
+body .disclaimer,
+body .radar-top small,
+body .factor-grid span,
+body .signal-card small,
+body .signal-meta span,
+body .simulator-control p,
+body .alert-row small,
+body .status-on,
+body .status-off,
+body .kry-advanced-head p,
+body .kry-chart-title small,
+body .kry-terminal-badge small,
+body .kry-terminal-strip span,
+body .kry-legend span,
+body .kry-factor-readout span,
+body .kry-tech-legend span,
+body .kry-momentum-state small,
+body .kry-tooltip > small,
+body .login-features small,
+body .login-card-head small,
+body .login-divider,
+body .google-note,
+body .login-security {
+  font-size: var(--kry-fs-micro);
+}
+
+body .asset-name b,
+body .decision input,
+body .decision select,
+body .risk-form select,
+body .search,
+body .login-field input,
+body .login-submit,
+body .kry-advanced-head > div > span {
+  font-size: var(--kry-fs-sm);
+}
+
+body .sidebar nav button {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+body .brand-copy small,
+body .account-copy small {
+  font-size: .82rem;
+}
+
+body .panel-head h3,
+body .panel h3,
+body .kry-chart-title h3 {
+  font-size: clamp(1.10rem, 1.02rem + .22vw, 1.28rem);
+}
+
+body .metric-card strong {
+  font-size: clamp(1.38rem, 1.18rem + .50vw, 1.82rem);
+}
+
+body .kry-chart-panel .recharts-tooltip-label,
+body .kry-chart-panel .recharts-tooltip-item {
+  font-size: .90rem !important;
+  line-height: 1.5 !important;
+}
+
+body .kry-chart-panel .recharts-cartesian-axis-tick-value,
+body .kry-chart-panel .recharts-polar-angle-axis-tick-value {
+  font-size: .82rem;
+}
+
+@media (max-width: 760px) {
+  html {
+    font-size: 17px;
+  }
+
+  body {
+    font-size: 1rem;
+    line-height: 1.65;
+  }
+
+  body .table-row {
+    font-size: .94rem;
+  }
+
+  body .table-head,
+  body .asset-name small,
+  body .pill,
+  body .signal-card small,
+  body .signal-meta span,
+  body .alert-row small,
+  body .status-on,
+  body .status-off {
+    font-size: .86rem;
+  }
+}
+
+@media (max-width: 560px) {
+  body .page-head h1 {
+    font-size: clamp(2.05rem, 9vw, 2.7rem);
+  }
+
+  body .page-head p:not(.eyebrow),
+  body .hero-card p,
+  body .signal-card p,
+  body .empty p,
+  body .login-story-copy > p,
+  body .login-card-subtitle {
+    font-size: .98rem;
+  }
+
+  body .eyebrow,
+  body .panel-head small,
+  body .panel > small,
+  body .label,
+  body .metric-card em,
+  body .guardian-note,
+  body .disclaimer,
+  body .simulator-control p,
+  body .kry-chart-title small,
+  body .kry-note,
+  body .login-card-head small,
+  body .login-divider,
+  body .google-note,
+  body .login-security {
+    font-size: .86rem;
+    line-height: 1.55;
+  }
+
+  body .sidebar nav button {
+    font-size: 1.05rem;
+  }
+
+  body .primary,
+  body .login-submit {
+    font-size: 1rem;
+  }
+
+  body .login-field > span {
+    font-size: .92rem;
+  }
+}
