@@ -94,6 +94,16 @@ function AirdropsWorkspace({onClose}){
  </div>;
 }
 
+let airdropsRoot=null;
+let airdropsHost=null;
+
+function closeAirdrops(button){
+ if(airdropsRoot){airdropsRoot.unmount();airdropsRoot=null;}
+ if(airdropsHost?.isConnected)airdropsHost.remove();
+ airdropsHost=null;
+ button?.classList.remove('active');
+}
+
 function mountAirdrops(){
  const sidebar=document.querySelector('.sidebar nav');
  if(!sidebar||sidebar.querySelector('[data-kryvion-airdrops]'))return false;
@@ -101,10 +111,11 @@ function mountAirdrops(){
  button.addEventListener('click',()=>{
   document.querySelector('.sidebar.open .close-mobile')?.click();
   document.querySelectorAll('.sidebar nav button').forEach((item)=>item.classList.remove('active'));
+  closeAirdrops();
   button.classList.add('active');
-  const previous=document.getElementById('kryvion-airdrops-root');if(previous)previous.remove();
-  const host=document.createElement('div');host.id='kryvion-airdrops-root';document.body.appendChild(host);
-  const root=createRoot(host);root.render(<AirdropsWorkspace onClose={()=>{root.unmount();host.remove();button.classList.remove('active');}}/>);
+  airdropsHost=document.createElement('div');airdropsHost.id='kryvion-airdrops-root';document.body.appendChild(airdropsHost);
+  airdropsRoot=createRoot(airdropsHost);
+  airdropsRoot.render(<AirdropsWorkspace onClose={()=>closeAirdrops(button)}/>);
  });
  sidebar.appendChild(button);return true;
 }
@@ -112,4 +123,8 @@ function mountAirdrops(){
 const ensureMounted=()=>mountAirdrops();
 ensureMounted();
 const observer=new MutationObserver(()=>ensureMounted());
-observer.observe(document.documentElement,{childList:true,subtree:true});
+observer.observe(document.body,{childList:true,subtree:true});
+window.addEventListener('authChanged',()=>{
+ closeAirdrops(document.querySelector('[data-kryvion-airdrops]'));
+ window.setTimeout(ensureMounted,0);
+});
