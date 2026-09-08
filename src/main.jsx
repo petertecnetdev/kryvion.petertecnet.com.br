@@ -13,6 +13,7 @@ const PublicSite=lazy(()=>import('./components/PublicSite.jsx'));
 const AdvancedMarketCharts=lazy(()=>import('./components/AdvancedMarketCharts.jsx'));
 const CandlestickTerminal=lazy(()=>import('./components/CandlestickTerminal.jsx'));
 const StressScenarioChart=lazy(()=>import('./components/StressScenarioChart.jsx'));
+const AirdropsPage=lazy(()=>import('./components/AirdropsPage.jsx'));
 import './styles.css';
 import './global-search.css';
 
@@ -39,7 +40,7 @@ function writeMarketCache(snapshot){
 
 const fmtBRL=(n)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:Number(n)<10?2:0}).format(Number(n||0));
 const pct=(n)=>`${Number(n||0)>=0?'+':''}${Number(n||0).toFixed(2)}%`;
-const nav=[['overview','Visão geral',FiBarChart2],['radar','Radar',FiCompass],['portfolio','Portfólio',FiBriefcase],['signals','Sinais',FiActivity],['simulator','Simulador',FiTrendingUp],['alerts','Alertas',FiBell],['risk','Risco',FiShield]];
+const nav=[['overview','Visão geral',FiBarChart2],['radar','Radar',FiCompass],['airdrops','Airdrops',FiTrendingUp],['portfolio','Portfólio',FiBriefcase],['signals','Sinais',FiActivity],['simulator','Simulador',FiTrendingUp],['alerts','Alertas',FiBell],['risk','Risco',FiShield]];
 
 function Spark({data,positive=true}){
  const values=(Array.isArray(data)&&data.length?data:[1,2,3,2,4]).map(Number).filter(Number.isFinite);
@@ -307,6 +308,7 @@ function App({user,onLogout}){
     </>}
 
     {page==='radar'&&<Radar assets={assets}/>}
+    {page==='airdrops'&&<Suspense fallback={<div className="chart-suspense" aria-label="Carregando Airdrops"/>}><AirdropsPage/></Suspense>}
     {page==='signals'&&<Signals assets={assets}/>}
     {page==='portfolio'&&<Portfolio positions={positions} total={portfolioValue} assets={assets} setPositions={setPositions} flash={flash}/>}
     {page==='simulator'&&<Simulator total={portfolioValue} simMove={simMove} setSimMove={setSimMove} simValue={simValue}/>}
