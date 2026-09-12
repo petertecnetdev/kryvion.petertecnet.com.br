@@ -5,6 +5,7 @@ import {marketApi} from './services/api.js';
 import {fetchCurrentUser,getStoredUser,getToken,logout} from './services/auth.js';
 import Brand,{KryvionMark} from './components/Brand.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import GlobalImageInputEnhancer from './components/GlobalImageInputEnhancer.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 const LoginScreen=lazy(()=>import('./components/LoginScreen.jsx'));
 const PeterAccountGateway=lazy(()=>import('./components/PeterAccountGateway.jsx'));
@@ -547,4 +548,4 @@ function AuthRoot(){
  return <App user={user} onLogout={signOut}/>;
 }
 
-createRoot(document.getElementById('root')).render(<ErrorBoundary><AuthRoot/></ErrorBoundary>);
+createRoot(document.getElementById('root')).render(<ErrorBoundary><AuthRoot/><GlobalImageInputEnhancer/></ErrorBoundary>);
